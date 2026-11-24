@@ -17,7 +17,7 @@ from video_pipeline import load_config  # noqa: E402
 
 MODES = [
     ("правила (geometry)", "main", {"pose_mode": "geometry"}),
-    ("сеть v1 (classifier)", "main", {"pose_mode": "classifier"}),
+    ("сеть v1 (classifier)", "main", {"pose_mode": "classifier", "pose_upright_max": 0.3}),   # порог, с которым оценивалась v1
     ("правила + сеть v2 (hybrid)", "extra", {"pose_mode": "hybrid", "pose_upright_max": 0.1, "pose_net_down_min": 0.7}),
 ]
 

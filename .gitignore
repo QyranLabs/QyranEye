@@ -8,11 +8,11 @@ __pycache__/
 drone videos/
 okutama_lying/
 okutama_train/
+test_videos/
 _to_delete/
 
 # Результаты обработки и обучения (воспроизводятся командами из README)
-results/
-results_tiles/
+results*/
 eval_results/
 runs/
 *.mp4
