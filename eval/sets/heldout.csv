@@ -1,0 +1,4 @@
+video,labels,start_s
+drone videos/TestSetVideos/Drone1/Noon/1.2.1.mp4,drone videos/TestSetVideos/Labels/SingleActionTrackingLabels/3840x2160/1.2.1.txt,0
+drone videos/TestSetVideos/Drone1/Noon/1.2.3.mp4,drone videos/TestSetVideos/Labels/SingleActionTrackingLabels/3840x2160/1.2.3.txt,0
+drone videos/TestSetVideos/Drone2/Noon/2.2.1.mp4,drone videos/TestSetVideos/Labels/SingleActionTrackingLabels/3840x2160/2.2.1.txt,0

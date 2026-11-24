@@ -1,0 +1,27 @@
+# Окружение и служебное
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+
+# Данные (гигабайты; где взять — в README, раздел «Данные»)
+drone videos/
+okutama_lying/
+okutama_train/
+_to_delete/
+
+# Результаты обработки и обучения (воспроизводятся командами из README)
+results/
+results_tiles/
+eval_results/
+runs/
+*.mp4
+*.mov
+
+# Модели: YOLO скачиваются автоматически; своя нейросеть позы хранится в git
+*.pt
+!pose_cls.pt
+*.task
+
+# Документы конкурса — не код
+*.pdf

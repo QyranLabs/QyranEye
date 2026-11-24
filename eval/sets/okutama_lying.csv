@@ -1,0 +1,5 @@
+video,labels,start_s
+okutama_lying/1.1.1_01_transition.mp4,drone videos/Sample/1.1.1.txt,0.0
+okutama_lying/1.1.8_01_lying.mp4,drone videos/TestSetVideos/Labels/SingleActionTrackingLabels/3840x2160/1.1.8.txt,19.02
+okutama_lying/1.2.10_01_transition.mp4,drone videos/TestSetVideos/Labels/SingleActionTrackingLabels/3840x2160/1.2.10.txt,0.0
+okutama_lying/2.2.10_01_transition.mp4,drone videos/TestSetVideos/Labels/SingleActionTrackingLabels/3840x2160/2.2.10.txt,0.0
