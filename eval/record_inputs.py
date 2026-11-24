@@ -16,8 +16,22 @@ sys.path.insert(0, proj)
 logdir.mkdir(parents=True, exist_ok=True)
 import video_pipeline as vp, fall_logic as fl, main as m
 
-cur = {"f": None, "meta": None}
-orig_pv, orig_up = vp.process_video, fl.FallMonitor.update
+cur = {"f": None, "meta": None, "extra": None}
+orig_pv, orig_up, orig_pp = vp.process_video, fl.FallMonitor.update, vp.pose_probs
+
+# Необязательно: вторая нейросеть позы (EXTRA_POSE_MODEL=путь.pt) — её ответы записываются рядом,
+# чтобы на повторе сравнить две сети без второго прохода по видео.
+import os
+extra_model = None
+if os.environ.get("EXTRA_POSE_MODEL"):
+    from ultralytics import YOLO
+    extra_model = YOLO(os.environ["EXTRA_POSE_MODEL"])
+
+
+def pp(pose_model, frame, boxes, cfg_):
+    res = orig_pp(pose_model, frame, boxes, cfg_)
+    cur["extra"] = orig_pp(extra_model, frame, boxes, cfg_) if extra_model is not None else None
+    return res
 
 
 def pv(path, cfg_, model, out_dir, *rest):
@@ -37,11 +51,12 @@ def up(self, t, people, warp=None):
                                                 "frame_size": list(self.frame_size),
                                                 "baseline_len": self.baseline_len}}) + "\n")
         cur["f"].write(json.dumps({"t": t, "warp": None if warp is None else [list(map(float, r)) for r in warp],
-                                   "people": [[p[0], [round(float(v), 1) for v in p[1]], p[3] if len(p) > 3 else None]
-                                              for p in people]}) + "\n")
+                                   "people": [[p[0], [round(float(v), 1) for v in p[1]], p[3] if len(p) > 3 else None,
+                                               cur["extra"][i] if cur["extra"] else None]
+                                              for i, p in enumerate(people)]}) + "\n")
     return orig_up(self, t, people, warp)
 
 
-vp.process_video, fl.FallMonitor.update = pv, up
+vp.process_video, fl.FallMonitor.update, vp.pose_probs = pv, up, pp
 sys.argv = ["main.py", source, "--config", cfg]
 m.main()

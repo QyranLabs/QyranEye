@@ -11,7 +11,6 @@ import copy, csv, json, sys
 from pathlib import Path
 
 proj = str(Path(__file__).resolve().parent.parent)
-cfg_path, indir, outdir = sys.argv[1], Path(sys.argv[2]), Path(sys.argv[3])
 sys.path.insert(0, proj)
 from video_pipeline import load_config
 from fall_logic import FallMonitor
@@ -24,6 +23,9 @@ def parse(v):
         except ValueError:
             pass
     return v
+
+
+NET = "main"   # main — ответы сети из config.yaml при записи; extra — второй сети (EXTRA_POSE_MODEL)
 
 
 def run(cfg, indir, outdir, fps=29.97, stride=2):
@@ -39,7 +41,8 @@ def run(cfg, indir, outdir, fps=29.97, stride=2):
         (outdir / "logs").mkdir(parents=True, exist_ok=True)
         with open(outdir / "logs" / f"{stem}.jsonl", "w") as out:
             for rec in lines[1:]:
-                people = [(p[0], tuple(p[1]), None, p[2]) if p[2] is not None else (p[0], tuple(p[1]), None)
+                k = 3 if (NET == "extra" and len(rec["people"]) and len(rec["people"][0]) > 3) else 2
+                people = [(p[0], tuple(p[1]), None, p[k]) if p[k] is not None else (p[0], tuple(p[1]), None)
                           for p in rec["people"]]
                 vis = mon.update(rec["t"], people, rec["warp"])
                 out.write(json.dumps({"t": rec["t"], "p": [[tr.tid, list(tr.box), tr.state, tr.raw_zone, tr.zone, tr.cue]
@@ -58,8 +61,12 @@ def run(cfg, indir, outdir, fps=29.97, stride=2):
 
 
 if __name__ == "__main__":
+    cfg_path, indir, outdir = sys.argv[1], Path(sys.argv[2]), Path(sys.argv[3])
     cfg = load_config(cfg_path)
     for kv in sys.argv[4:]:
         k, v = kv.split("=", 1)
-        setattr(cfg, k, parse(v))
+        if k == "net":
+            NET = v               # net=extra — взять ответы второй сети
+        else:
+            setattr(cfg, k, parse(v))
     print("тревог:", run(cfg, indir, outdir))
