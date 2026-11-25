@@ -142,6 +142,29 @@ run("R5b ...и упал -> тревога", r5, "FALL", 1, "oblique", secs=22)
 run("R6 лежит, рамка дрожит", lambda t: (1, box(160, 100) if t < 3 else
     box(120 + 25 * math.sin(5 * t), 100, cx=500 + 10 * math.sin(9 * t)), None), "LYING", 0, "oblique")
 
+# ---------------- СКОРОСТЬ ПАДЕНИЯ ПО ТОЧКАМ ТЕЛА ----------------
+print("=== скорость падения ===")
+def body(deg, cx=500, foot=580, height=160):
+    """Человек, который поворачивается вокруг ступней: 0 — стоит, 90 — лежит. Рамка и точки тела."""
+    a = math.radians(deg); at = lambda q: (cx + q * height * math.sin(a), foot - q * height * math.cos(a))
+    k = np.zeros((17, 3))
+    for i, q in ((5, .8), (6, .8), (11, .5), (12, .5), (15, .03), (16, .03)): k[i] = (*at(q), 0.9)
+    hx, hy = at(1.0)
+    return (min(cx, hx) - 28, min(foot, hy) - 5, max(cx, hx) + 28, foot + 5), k
+def fall_body(secs):
+    return lambda t: (1, *body(ramp(t, 3, secs, 0, 88)))
+run("S1 упал за 0.8 с -> тревога", fall_body(.8), "FALL", 1, "oblique")
+run("S2 лёг сам за 2.5 с -> LYING", fall_body(2.5), "LYING", 0, "oblique")
+run("S3 упал в другую сторону", lambda t: (1, *body(-ramp(t, 3, .8, 0, 88))), "FALL", 1, "oblique")
+def s4(t):
+    """стоит на полпути (наклонился на 25°) 3 с, потом рухнул за 0.6 с"""
+    return (1, *body(ramp(t, 3, 1, 0, 25) if t < 7 else ramp(t, 7, .6, 25, 88)))
+run("S4 наклонился, постоял, рухнул -> тревога", s4, "FALL", 1, "oblique")
+# S5: ложился 3.6 с, но середину поворота прошёл за 0.6 с (как NOMAD Actor042). Раньше — ложная тревога.
+def s5(t):
+    return (1, *body(ramp(t, 3, 1.5, 0, 25) if t < 4.5 else ramp(t, 4.5, .6, 25, 65) if t < 5.1 else ramp(t, 5.1, 1.5, 65, 88)))
+run("S5 лёг сам рывком в середине -> LYING", s5, "LYING", 0, "oblique")
+
 # ---------------- ПРОВЕРКА ПЕРЕД ТРЕВОГОЙ, КРАЙ КАДРА, ДВИЖЕНИЕ ДРОНА ----------------
 print("=== проверка перед тревогой ===")
 def loop(name, frame_fn, expect_alarms, expect_state=None, view="oblique", secs=20, frame_size=None, pose_mode="geometry"):

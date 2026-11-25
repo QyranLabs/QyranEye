@@ -25,7 +25,7 @@ from pathlib import Path
 from statistics import median
 
 P = Path(__file__).resolve().parent.parent
-TAIL_S, MIN_LIE_S = 1.0, 7.0      # запас после start_s..end_s; короче MIN_LIE_S тревога (5 с) может не успеть
+TAIL_S, MIN_LIE_S = 1.0, 7.0      # запас после start_s..end_s; короче MIN_LIE_S тревога (4 с) может не успеть
 COLS = {"video", "set", "person", "view", "height_m", "kind", "start_s", "end_s", "note"}
 
 

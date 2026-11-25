@@ -6,6 +6,7 @@
   2. YOLO pose находит людей (рамка + 17 точек тела) — на всём кадре в imgsz
      или по кускам (tiles), на видеокарте Apple (device=mps);
   3. ByteTrack даёт каждому человеку постоянный номер (ID);
+  3а. под углом, у людей от min_keypoint_px: точки тела на увеличенной вырезке (crop_keypoints);
   4. FallMonitor (fall_logic.py) решает: стоит / упал / лежит / тревога;
   5. рисуем рамки и пишем кадр в выходное видео, тревоги — в CSV.
 
@@ -29,7 +30,7 @@ from ultralytics.trackers.utils.gmc import GMC
 from ultralytics.trackers.utils.stracks import multi_gmc
 
 from fall_logic import (FALLEN, FALLING, LYING, UNKNOWN, UPRIGHT, FallMonitor,
-                        L_HIP, L_SHOULDER, R_HIP, R_SHOULDER)
+                        L_HIP, L_SHOULDER, OBLIQUE, R_HIP, R_SHOULDER)
 
 VIDEO_EXTS = {".mp4", ".mov", ".avi", ".mkv", ".m4v"}
 
@@ -270,7 +271,49 @@ def pose_probs(pose_model, frame, boxes, cfg):
     return [{pose_model.names[i]: round(float(v), 4) for i, v in enumerate(r.probs.data.tolist())} for r in res]
 
 
-def find_people(model, tracker, frame, cfg, low_conf, pose_model=None):
+KP_CONTEXT = 1.4        # вырезка для точек тела: квадрат = длинная сторона рамки * 1.4
+_kp_models = {}         # нейросеть точек грузим один раз на все видео
+
+
+def crop_kp_model(cfg):
+    """Нейросеть точек тела для вырезок или None, если они выключены. Проверено только с geometry."""
+    if not getattr(cfg, "crop_keypoints", False) or cfg.pose_mode != "geometry":
+        return None
+    path = str(resolve(cfg, cfg.crop_keypoints_model))
+    if path not in _kp_models:
+        _kp_models[path] = YOLO(path)
+    return _kp_models[path]
+
+
+def crop_keypoints(kp_model, frame, boxes, cfg):
+    """Точки тела (17, 3) в координатах кадра для каждой рамки, или None (мелкий / не нашлись).
+    На целом кадре человек для сети слишком мелкий, поэтому вырезаем его и увеличиваем."""
+    out, size = [None] * len(boxes), cfg.crop_keypoints_imgsz
+    crops, where = [], []
+    for i, (x1, y1, x2, y2) in enumerate(boxes):
+        long_side = max(x2 - x1, y2 - y1)
+        if long_side < cfg.min_keypoint_px:
+            continue
+        half = long_side * KP_CONTEXT / 2
+        a, b, side = int((x1 + x2) / 2 - half), int((y1 + y2) / 2 - half), max(4, int(2 * half))
+        crop = np.full((side, side, 3), 114, np.uint8)         # за краем кадра — серый
+        xa, ya, xb, yb = max(0, a), max(0, b), min(frame.shape[1], a + side), min(frame.shape[0], b + side)
+        if xb <= xa or yb <= ya:
+            continue
+        crop[ya - b:yb - b, xa - a:xb - a] = frame[ya:yb, xa:xb]
+        crops.append(cv2.resize(crop, (size, size), interpolation=cv2.INTER_CUBIC if side < size else cv2.INTER_AREA))
+        where.append((i, a, b, side / size))
+    if not crops:
+        return out
+    for (i, a, b, k), r in zip(where, kp_model.predict(crops, imgsz=size, conf=0.1, device=cfg.device, verbose=False)):
+        if len(r.boxes):
+            kp = r.keypoints.data[int(r.boxes.conf.argmax())].cpu().numpy().copy()   # самый уверенный человек
+            kp[:, 0], kp[:, 1] = kp[:, 0] * k + a, kp[:, 1] * k + b
+            out[i] = kp
+    return out
+
+
+def find_people(model, tracker, frame, cfg, low_conf, pose_model=None, kp_model=None):
     """Детекция + трекинг одного кадра -> список (track_id, рамка, точки тела|None[, ответ сети позы])."""
     det = detect(model, frame, cfg, low_conf)
     people = []
@@ -278,6 +321,9 @@ def find_people(model, tracker, frame, cfg, low_conf, pose_model=None):
         tid, di = int(row[4]), int(row[7])
         box = tuple(float(v) for v in det.xyxy[di])  # рамка из детектора (не сглаженная)
         people.append((tid, box, None if det.kpts is None else det.kpts[di]))
+    if kp_model is not None:
+        kps = crop_keypoints(kp_model, frame, [p[1] for p in people], cfg)
+        people = [(tid, box, kp) for (tid, box, _), kp in zip(people, kps)]
     if pose_model is not None:
         probs = pose_probs(pose_model, frame, [p[1] for p in people], cfg)
         people = [(*p, pr) for p, pr in zip(people, probs)]
@@ -347,6 +393,7 @@ def process_video(path, cfg, model, out_dir, pose_model=None):
     out_csv = out_dir / f"{path.stem}_events.csv"
     writer = open_writer(out_video, fps, size)
 
+    kp_model = crop_kp_model(cfg)
     overlay, idx = [], 0
     t_start = t_print = time.time()
     try:
@@ -359,7 +406,8 @@ def process_video(path, cfg, model, out_dir, pose_model=None):
             t = idx / fps                                    # время ВИДЕО, а не часов
 
             if idx % stride == 0:
-                people = find_people(model, tracker, frame, cfg, low_conf, pose_model)
+                people = find_people(model, tracker, frame, cfg, low_conf, pose_model,
+                                     kp_model if monitor.view == OBLIQUE else None)   # сверху точки не работают
                 if isinstance(tracker, CameraAwareBotSort):
                     warp = tracker.last_warp             # тот же сдвиг камеры, что использовал трекер
                 else:
@@ -401,7 +449,7 @@ def process_video(path, cfg, model, out_dir, pose_model=None):
 def write_csv(path, video_name, events, fps, scale, view):
     """Одна строка на тревогу. Координаты рамки — в пикселях ИСХОДНОГО видео."""
     cols = ["video", "camera_view", "track_id", "earlier_ids", "fall_start_s", "fall_start_time",
-            "alarm_s", "alarm_time", "alarm_frame", "transition_s", "down_share", "speed", "recovered_s",
+            "alarm_s", "alarm_time", "alarm_frame", "transition_s", "fall_speed", "down_share", "speed", "recovered_s",
             "x1", "y1", "x2", "y2"]
     with open(path, "w", newline="", encoding="utf-8") as f:
         wr = csv.DictWriter(f, fieldnames=cols)
@@ -414,6 +462,7 @@ def write_csv(path, video_name, events, fps, scale, view):
                 "fall_start_s": e["fall_start_s"], "fall_start_time": fmt_time(e["fall_start_s"]),
                 "alarm_s": e["alarm_s"], "alarm_time": fmt_time(e["alarm_s"]),
                 "alarm_frame": round(e["alarm_s"] * fps), "transition_s": e["transition_s"],
+                "fall_speed": e.get("fall_speed", ""),
                 "down_share": e["down_share"], "speed": e["speed"],
                 "recovered_s": e["recovered_s"], "x1": x1, "y1": y1, "x2": x2, "y2": y2,
             })

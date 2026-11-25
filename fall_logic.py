@@ -33,7 +33,9 @@
   2. СГЛАЖИВАНИЕ: зона по большинству голосов за vote_window_s (чтобы один
      шумный кадр не считался падением).
   3. КОНЕЧНЫЙ АВТОМАТ (метод _step):
-       UP --(перешёл в DOWN быстрее fall_transition_s)--> FALL?  (жёлтый)
+       UP --(перешёл в DOWN быстро)--------------------> FALL?  (жёлтый)
+           «быстро»: есть точки тела — плечи сдвинулись относительно щиколоток со скоростью
+           >= fall_speed_min ростов в секунду; точек нет — переход короче fall_transition_s
        UP --(перешёл в DOWN медленнее)----------------> LYING  (просто лёг, без тревоги)
        FALL? --(через lying_alarm_s: лежал >= alarm_down_share кадров, лежит сейчас
                 и не перемещается быстрее still_speed_max)--> FALL (красный, событие в CSV)
@@ -49,7 +51,7 @@ from dataclasses import dataclass, field
 from statistics import median
 
 # Номера точек тела в формате COCO (их выдаёт YOLO pose)
-L_SHOULDER, R_SHOULDER, L_HIP, R_HIP = 5, 6, 11, 12
+L_SHOULDER, R_SHOULDER, L_HIP, R_HIP, L_ANKLE, R_ANKLE = 5, 6, 11, 12, 15, 16
 
 # Зоны позы в одном кадре
 UP, MID, DOWN = "UP", "MID", "DOWN"
@@ -119,6 +121,7 @@ class Track:
     geo_zone: str | None = None                      # hybrid: сглаженная зона только по форме
     geo_raw: str | None = None
     p_lying: float | None = None                     # ответ сети в этом кадре
+    reach: deque = field(default_factory=deque)      # (t, dx, dy): плечи относительно щиколоток, по точкам тела
     net_down_since: float | None = None              # hybrid: с какого момента «лежит» только по сети
 
     def __post_init__(self):
@@ -136,6 +139,11 @@ class FallMonitor:
         # сколько замеров «стоя» хранить для эталона формы рамки
         self.baseline_len = max(3, round(cfg.baseline_window_s * analysis_fps))
         self.baseline_min = max(3, self.baseline_len // 4)
+
+        # скорость падения по точкам тела (в старых конфигах этих строк может не быть — тогда правило выключено)
+        self.fall_speed_min = getattr(cfg, "fall_speed_min", 0)
+        self.fall_win_s = getattr(cfg, "fall_speed_window_s", 0.3)
+        self.fall_back_s = getattr(cfg, "fall_speed_back_s", 1.5)
 
         if cfg.pose_mode not in ("classifier", "geometry", "hybrid"):
             raise ValueError(f"pose_mode: ожидается geometry, classifier или hybrid, а не {cfg.pose_mode!r}")
@@ -166,6 +174,7 @@ class FallMonitor:
                 self.tracks[tid] = tr
             tr.box, tr.kpts, tr.last_seen = box, kpts, t
             self._update_speed(tr, t, box)
+            self._update_reach(tr, t, box, kpts)
 
             tr.raw_zone = self.classify(tr, box, kpts, net)
             tr.zone = self._smooth(tr, t)
@@ -204,6 +213,40 @@ class FallMonitor:
             tr.speed = math.hypot(tr.path[-1][1] - x0, tr.path[-1][2] - y0) / max(1.0, length) / (t - t0)
         else:
             tr.speed = None
+
+    def _update_reach(self, tr, t, box, kpts):
+        """Запоминаем вектор «щиколотки -> плечи» (если точки видны). Он не зависит от того,
+        идёт ли человек и летит ли дрон, и резко меняется, когда человек падает в любую сторону."""
+        c = self.cfg
+        if kpts is not None and max(box[2] - box[0], box[3] - box[1]) >= c.min_keypoint_px:
+            sh = [kpts[i] for i in (L_SHOULDER, R_SHOULDER) if kpts[i][2] >= c.keypoint_conf]
+            an = [kpts[i] for i in (L_ANKLE, R_ANKLE) if kpts[i][2] >= c.keypoint_conf]
+            if sh and an:
+                tr.reach.append((t, sum(p[0] for p in sh) / len(sh) - sum(p[0] for p in an) / len(an),
+                                 sum(p[1] for p in sh) / len(sh) - sum(p[1] for p in an) / len(an)))
+        while tr.reach and t - tr.reach[0][0] > self.fall_back_s + self.fall_win_s:
+            tr.reach.popleft()
+
+    def _fall_speed(self, tr):
+        """Наибольшая скорость плеч относительно щиколоток за последние fall_speed_back_s,
+        в ростах за секунду (рост — рамка этого же человека стоя). None — точек или роста нет."""
+        if len(tr.longs) < 3:
+            return None
+        height, best, pts = median(tr.longs), None, list(tr.reach)
+        for i, (t0, x0, y0) in enumerate(pts):
+            for t1, x1, y1 in pts[i + 1:]:
+                if t1 - t0 >= self.fall_win_s - 0.02:         # первая точка через fall_speed_window_s
+                    if t1 - t0 <= self.fall_win_s * 1.6:      # (если точки не пропадали надолго)
+                        v = math.hypot(x1 - x0, y1 - y0) / (t1 - t0) / height
+                        best = v if best is None else max(best, v)
+                    break
+        return best
+
+    def _went_down_fast(self, tr, t):
+        """Упал (быстро) или лёг сам (медленно)? Считается в момент перехода в DOWN."""
+        tr_fast = t - tr.last_up_t <= self.cfg.fall_transition_s
+        v = self._fall_speed(tr) if self.fall_speed_min and self.view == OBLIQUE else None
+        return (tr_fast if v is None else v >= self.fall_speed_min), v
 
     def _at_edge(self, box):
         if self.frame_size is None:
@@ -406,14 +449,17 @@ class FallMonitor:
                 tr.down_since = t
                 if tr.last_up_t is None:
                     tr.state = LYING                    # стоящим его не видели
-                elif t - tr.last_up_t <= c.fall_transition_s:
-                    tr.state = FALLING                  # быстрый переход = падение
-                    tr.event = {"track_id": tr.tid,
-                                "fall_start_s": round(tr.last_up_t, 2),
-                                "transition_s": round(t - tr.last_up_t, 2)}
-                    tr.wait_votes, tr.wait_speeds, tr.wait_net = {}, [], []
                 else:
-                    tr.state = LYING                    # ложился медленно
+                    fast, v = self._went_down_fast(tr, t)
+                    if fast:
+                        tr.state = FALLING              # быстрый переход = падение
+                        tr.event = {"track_id": tr.tid,
+                                    "fall_start_s": round(tr.last_up_t, 2),
+                                    "transition_s": round(t - tr.last_up_t, 2),
+                                    "fall_speed": "" if v is None else round(v, 2)}
+                        tr.wait_votes, tr.wait_speeds, tr.wait_net = {}, [], []
+                    else:
+                        tr.state = LYING                # ложился медленно
 
         elif z == MID:
             tr.up_since = None                          # переходная поза: ничего не решаем

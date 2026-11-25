@@ -42,7 +42,8 @@ def run(cfg, indir, outdir, fps=29.97, stride=2):
         with open(outdir / "logs" / f"{stem}.jsonl", "w") as out:
             for rec in lines[1:]:
                 k = 3 if (NET == "extra" and len(rec["people"]) and len(rec["people"][0]) > 3) else 2
-                people = [(p[0], tuple(p[1]), None, p[k]) if p[k] is not None else (p[0], tuple(p[1]), None)
+                # p[4] — точки тела (в записях до появления crop_keypoints их нет: тогда только форма рамки)
+                people = [(p[0], tuple(p[1]), p[4] if len(p) > 4 else None) + ((p[k],) if p[k] is not None else ())
                           for p in rec["people"]]
                 vis = mon.update(rec["t"], people, rec["warp"])
                 out.write(json.dumps({"t": rec["t"], "p": [[tr.tid, list(tr.box), tr.state, tr.raw_zone, tr.zone, tr.cue]

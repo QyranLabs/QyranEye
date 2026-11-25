@@ -1,7 +1,7 @@
 """Запись ВХОДОВ логики падения для подбора порогов (вместе с eval/replay.py).
 
 Запускает систему (как `python main.py <источник> --config X`) и на каждом анализируемом кадре
-записывает, что получает логика: время, люди (id, рамка, ответ нейросети позы), сдвиг камеры,
+записывает, что получает логика: время, люди (id, рамка, ответ нейросети позы, точки тела), сдвиг камеры,
 размер кадра, ракурс. Детектор и нейросеть работают один раз; потом eval/replay.py прогоняет
 только логику с любыми настройками за секунды.
 
@@ -52,7 +52,8 @@ def up(self, t, people, warp=None):
                                                 "baseline_len": self.baseline_len}}) + "\n")
         cur["f"].write(json.dumps({"t": t, "warp": None if warp is None else [list(map(float, r)) for r in warp],
                                    "people": [[p[0], [round(float(v), 1) for v in p[1]], p[3] if len(p) > 3 else None,
-                                               cur["extra"][i] if cur["extra"] else None]
+                                               cur["extra"][i] if cur["extra"] else None,
+                                               None if p[2] is None else [[round(float(v), 2) for v in k] for k in p[2]]]
                                               for i, p in enumerate(people)]}) + "\n")
     return orig_up(self, t, people, warp)
 
