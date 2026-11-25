@@ -59,7 +59,7 @@ def load_config(path):
     data = read_config(path)
     data["tiles"] = SimpleNamespace(**data["tiles"])
     cfg = SimpleNamespace(**data)
-    cfg.base_dir = path.parent          # относительные пути считаем от папки конфига
+    cfg.base_dir = Path(__file__).resolve().parent   # относительные пути (model, output_dir) — от папки проекта
     return cfg
 
 
@@ -358,7 +358,14 @@ def warn_view(monitor):
               "            если под углом — с --view oblique. Ошибка в ракурсе может скрыть падение.")
 
 
-def process_video(path, cfg, model, out_dir, pose_model=None):
+class StopRequested(Exception):
+    """Нажали q или Esc в окне просмотра: остановить и это видео, и остальные."""
+
+
+def process_video(path, cfg, model, out_dir, pose_model=None, on_frame=None):
+    """Один видеофайл -> out_dir/<имя>_fall.mp4 + <имя>_events.csv. Возвращает список тревог.
+    on_frame(t, frame, people, warp, monitor, visible) — если задан, вызывается после каждого
+    анализируемого кадра основного прохода (так eval/ пишет журналы, ничего не подменяя)."""
     path = Path(path)
     cap = cv2.VideoCapture(str(path))
     if not cap.isOpened():
@@ -379,7 +386,6 @@ def process_video(path, cfg, model, out_dir, pose_model=None):
     stride = max(1, int(cfg.frame_stride))
     analysis_fps = fps / stride
     low_conf = min(0.1, cfg.conf)
-    tracker = make_tracker(cfg, analysis_fps)
     if cfg.camera_view == "auto" and cfg.view_prescan:
         view, reason, sure = prescan_view(path, cfg, model, scale, size, stride, fps, low_conf)
         vcfg = copy.copy(cfg)
@@ -390,6 +396,7 @@ def process_video(path, cfg, model, out_dir, pose_model=None):
         warn_view(monitor)
     else:
         monitor = FallMonitor(cfg, analysis_fps, size)
+    tracker = make_tracker(cfg, analysis_fps)       # после предпросмотра, чтобы номера людей шли с 1
     # поправка на движение дрона: сдвиг кадра по фону между анализируемыми кадрами
     # (BoT-SORT считает сдвиг сам и отдаёт его в tracker.last_warp; для ByteTrack считаем отдельно)
     gmc = None
@@ -402,11 +409,13 @@ def process_video(path, cfg, model, out_dir, pose_model=None):
 
     kp_model = crop_kp_model(cfg)
     overlay, idx = [], 0
+    complete = stopped = False
     t_start = t_print = time.time()
     try:
         while True:
             ok, frame = cap.read()
             if not ok:
+                complete = True                              # дошли до конца файла
                 break
             if scale < 1:
                 frame = cv2.resize(frame, size, interpolation=cv2.INTER_AREA)
@@ -420,8 +429,11 @@ def process_video(path, cfg, model, out_dir, pose_model=None):
                 else:
                     warp = None if gmc is None else gmc.apply(frame)
                 had_view = monitor.view is not None
+                visible = monitor.update(t, people, warp)
+                if on_frame is not None:
+                    on_frame(t, frame, people, warp, monitor, visible)
                 overlay = [dict(tid=tr.tid, state=tr.state, cue=tr.cue, box=tr.box, kpts=tr.kpts)
-                           for tr in monitor.update(t, people, warp)]
+                           for tr in visible]
                 if not had_view and monitor.view is not None:
                     print(f"  Ракурс: {monitor.view} ({monitor.view_reason}), t={t:.1f} с")
                     warn_view(monitor)
@@ -434,6 +446,7 @@ def process_video(path, cfg, model, out_dir, pose_model=None):
                 cv2.imshow("QyranEye", frame)
                 if cv2.waitKey(1) & 0xFF in (ord("q"), 27):
                     print("  Остановлено пользователем.")
+                    stopped = True
                     break
 
             idx += 1
@@ -446,12 +459,24 @@ def process_video(path, cfg, model, out_dir, pose_model=None):
         writer.release()
         if cfg.show_preview:
             cv2.destroyAllWindows()
-        write_csv(out_csv, path.name, monitor.events, fps, scale, monitor.view)
+        # неполный прогон (остановили или ошибка) не должен выглядеть как готовый: его тревоги — в .partial.csv
+        partial = out_dir / f"{path.stem}_events.partial.csv"
+        if complete:
+            write_csv(out_csv, path.name, monitor.events, fps, scale, monitor.view)
+            partial.unlink(missing_ok=True)
+        else:
+            out_csv.unlink(missing_ok=True)
+            write_csv(partial, path.name, monitor.events, fps, scale, monitor.view)
+            print(f"  ВНИМАНИЕ: обработка прервана на кадре {idx} из {total}, тревоги до этого места -> {partial}")
 
     took = time.time() - t_start
+    if complete and total and idx < 0.99 * total:
+        print(f"  ВНИМАНИЕ: прочитано {idx} кадров из {total} — видео могло обрезаться или быть повреждено")
     print(f"  Готово за {took:.0f} с ({idx / max(took, 1e-6):.1f} кадр/с). Тревог: {len(monitor.events)}, "
           f"отменено проверкой перед тревогой: {monitor.cancelled}")
-    print(f"  -> {out_video}\n  -> {out_csv}")
+    print(f"  -> {out_video}\n  -> {out_csv if complete else partial}")
+    if stopped:
+        raise StopRequested
     return monitor.events
 
 
@@ -499,4 +524,8 @@ def process_source(source, config_path, view=None):
 
     for i, v in enumerate(videos, 1):
         print(f"[{i}/{len(videos)}] {v.name}")
-        process_video(v, cfg, model, out_dir, pose_model)
+        try:
+            process_video(v, cfg, model, out_dir, pose_model)
+        except StopRequested:
+            print(f"Остановлено: не обработано видео: {len(videos) - i}")
+            break
