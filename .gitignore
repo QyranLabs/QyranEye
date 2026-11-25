@@ -23,7 +23,6 @@ runs/
 *.pt
 !pose_cls.pt
 !pose_cls_v2.pt
-*.task
 
 # Документы конкурса — не код
 *.pdf

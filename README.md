@@ -52,7 +52,6 @@ python3 -m venv .venv
 ```bash
 .venv/bin/python main.py видео.mp4        # один файл
 .venv/bin/python main.py папка/           # все видео в папке по очереди
-.venv/bin/python main.py                  # веб-камера (старый режим)
 .venv/bin/python main.py видео.mp4 --config другой.yaml
 ```
 
@@ -245,7 +244,7 @@ python3 -m venv .venv
 ## Структура
 
 ```
-main.py              запуск: файл / папка / веб-камера
+main.py              запуск: файл или папка с видео
 video_pipeline.py    детектор, трекер, нарезка людей для нейросети, видео и CSV
 fall_logic.py        логика «стоит / лежит / упал / тревога» (без нейросетей и OpenCV)
 config.yaml          все пороги и переключатели
