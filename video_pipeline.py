@@ -348,8 +348,14 @@ def prescan_view(path, cfg, model, scale, size, stride, fps, low_conf):
         idx += 1
     cap.release()
     if mon.view is None:
-        return cfg.camera_view_default, "auto: видео кончилось раньше, взят camera_view_default"
-    return mon.view, f"{mon.view_reason}; предварительный просмотр {idx / fps:.1f} с"
+        return cfg.camera_view_default, "auto: видео кончилось раньше, взят camera_view_default", False
+    return mon.view, f"{mon.view_reason}; предварительный просмотр {idx / fps:.1f} с", mon.view_sure
+
+
+def warn_view(monitor):
+    if not monitor.view_sure:
+        print("  ВНИМАНИЕ: ракурс НЕ УВЕРЕН (мало людей). Если камера смотрела строго вниз — запустите с --view nadir,\n"
+              "            если под углом — с --view oblique. Ошибка в ракурсе может скрыть падение.")
 
 
 def process_video(path, cfg, model, out_dir, pose_model=None):
@@ -375,12 +381,13 @@ def process_video(path, cfg, model, out_dir, pose_model=None):
     low_conf = min(0.1, cfg.conf)
     tracker = make_tracker(cfg, analysis_fps)
     if cfg.camera_view == "auto" and cfg.view_prescan:
-        view, reason = prescan_view(path, cfg, model, scale, size, stride, fps, low_conf)
+        view, reason, sure = prescan_view(path, cfg, model, scale, size, stride, fps, low_conf)
         vcfg = copy.copy(cfg)
         vcfg.camera_view = view
         monitor = FallMonitor(vcfg, analysis_fps, size)
-        monitor.view_reason = reason
+        monitor.view_reason, monitor.view_sure = reason, sure
         print(f"  Ракурс: {view} ({reason})")
+        warn_view(monitor)
     else:
         monitor = FallMonitor(cfg, analysis_fps, size)
     # поправка на движение дрона: сдвиг кадра по фону между анализируемыми кадрами
@@ -417,8 +424,10 @@ def process_video(path, cfg, model, out_dir, pose_model=None):
                            for tr in monitor.update(t, people, warp)]
                 if not had_view and monitor.view is not None:
                     print(f"  Ракурс: {monitor.view} ({monitor.view_reason}), t={t:.1f} с")
+                    warn_view(monitor)
 
-            draw(frame, overlay, t, len(monitor.events), cfg, monitor.view)
+            view = monitor.view and monitor.view + ("" if monitor.view_sure else " (not sure)")
+            draw(frame, overlay, t, len(monitor.events), cfg, view)
             writer.write(frame)
 
             if cfg.show_preview:
@@ -469,8 +478,10 @@ def write_csv(path, video_name, events, fps, scale, view):
 
 
 # ---------------------------------------------------------------- file or folder
-def process_source(source, config_path):
+def process_source(source, config_path, view=None):
     cfg = load_config(config_path)
+    if view:
+        cfg.camera_view = view          # ключ --view: ракурс задал человек
     src = Path(source)
     if src.is_dir():
         videos = sorted(p for p in src.iterdir() if p.suffix.lower() in VIDEO_EXTS)

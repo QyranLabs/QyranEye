@@ -1,6 +1,7 @@
 """Сколько падений поймала система: сравнение тревог (CSV из main.py) с разметкой съёмки.
 
-    .venv/bin/python main.py fimi/videos/                 # сначала обработать видео -> results/
+    .venv/bin/python main.py fimi/videos/oblique/ --view oblique   # сначала обработать видео -> results/
+    .venv/bin/python main.py fimi/videos/nadir/ --view nadir
     .venv/bin/python eval/fall_recall.py                  # ролики для настройки (set=tune)
     .venv/bin/python eval/fall_recall.py --set test       # итоговая проверка — смотреть ОДИН раз, в конце
 
@@ -118,7 +119,7 @@ def main():
                 missed.append(f"{v} {r['start_s']} с ({r['view']}, {r['height_m']} м, {r['note']})")
         try:
             import cv2
-            cap = cv2.VideoCapture(str(Path(a.videos) / v))
+            cap = cv2.VideoCapture(str(next(Path(a.videos).rglob(v), "")))   # видео может лежать в подпапке
             d = cap.get(cv2.CAP_PROP_FRAME_COUNT) / (cap.get(cv2.CAP_PROP_FPS) or 1)
             cap.release()
         except ImportError:

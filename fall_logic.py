@@ -150,7 +150,8 @@ class FallMonitor:
         if cfg.camera_view not in ("auto", OBLIQUE, NADIR):
             raise ValueError(f"camera_view: ожидается auto, oblique или nadir, а не {cfg.camera_view!r}")
         self.view = None if cfg.camera_view == "auto" else cfg.camera_view
-        self.view_reason = "" if self.view is None else "задан в config.yaml"
+        self.view_reason = "" if self.view is None else "задан вручную"
+        self.view_sure = self.view is not None            # False — ракурс взят по умолчанию, людей было мало
         self._view_samples: dict[int, list[float]] = {}   # tid -> замеры ширина/высота
         self._view_first_t: float | None = None
 
@@ -266,7 +267,8 @@ class FallMonitor:
         """auto: ракурс по форме рамок людей. Каждый человек (track_id) голосует
         один раз — медианой своего ширина/высота. Решаем через view_auto_s секунд
         после появления первого человека, если набралось view_min_tracks человек;
-        иначе ждём до view_max_wait_s и решаем по тем, кто есть."""
+        ждём до view_max_wait_s и берём camera_view_default: по одному-двум людям форме
+        верить нельзя (лежащий под углом похож на стоящего, снятого сверху)."""
         c = self.cfg
         for tid, box, *_ in people:
             if self._view_first_t is None:
@@ -278,13 +280,14 @@ class FallMonitor:
         votes = [median(v) for v in self._view_samples.values() if len(v) >= 3]
         if waited < c.view_auto_s or (len(votes) < c.view_min_tracks and waited < c.view_max_wait_s):
             return
-        if votes:
+        if len(votes) >= c.view_min_tracks:
             m = median(votes)
+            self.view_sure = True
             self.view = NADIR if m >= c.view_nadir_min_wh else OBLIQUE
             self.view_reason = f"auto: медиана ширина/высота {m:.2f}, голосов {len(votes)}"
         else:
             self.view = c.camera_view_default
-            self.view_reason = "auto: людей не набралось, взят camera_view_default"
+            self.view_reason = f"auto: людей всего {len(votes)}, взят camera_view_default"
 
     def classify(self, tr, box, kpts, net=None):
         """Зона позы UP / MID / DOWN в одном кадре (или None — не понять)."""

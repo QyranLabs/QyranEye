@@ -268,6 +268,19 @@ for i in range(int(20 * FPS)):
     m.update(i / FPS, [(1, STAND, None)] if i == 20 else [])
 print(f"{'OK ' if m.view == 'oblique' else 'FAIL'} V3 мало людей -> camera_view_default: {m.view} ({m.view_reason})")
 if m.view != BASE.camera_view_default: fails.append("V3")
+# V6 (куски NOMAD 042 и 099): один человек, все 15 с лежит под углом -> раньше решало «сверху»
+m = FallMonitor(cfg_with(camera_view="auto"), FPS)
+for i in range(int(20 * FPS)):
+    m.update(i / FPS, [(1, LIE, None)])
+ok = m.view == "oblique" and not m.view_sure
+print(f"{'OK ' if ok else 'FAIL'} V6 один лежащий -> под углом, но «не уверен»: {m.view} ({m.view_reason}), уверен {m.view_sure}")
+if not ok: fails.append("V6")
+m = FallMonitor(cfg_with(camera_view="auto"), FPS)
+for i in range(int(20 * FPS)):
+    m.update(i / FPS, [(k, b, None) for k, b in enumerate(BLOB)])
+ok = m.view == "nadir" and m.view_sure
+print(f"{'OK ' if ok else 'FAIL'} V7 трое, вид сверху -> сверху, уверен: {m.view}, {m.view_sure}")
+if not ok: fails.append("V7")
 try:
     FallMonitor(cfg_with(camera_view="top"), FPS); fails.append("V4")
 except ValueError as e:
