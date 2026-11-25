@@ -39,10 +39,23 @@ COLORS = {UNKNOWN: (170, 170, 170), UPRIGHT: (0, 200, 0), LYING: (255, 160, 0),
 
 
 # ---------------------------------------------------------------- config
+def read_config(path):
+    """Настройки из yaml как словарь. `base: другой.yaml` = взять всё оттуда, а в этом файле
+    задать только отличия (вложенные разделы, например tiles, дополняются, а не заменяются)."""
+    with open(path, encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    base = data.pop("base", None)
+    if base is None:
+        return data
+    merged = read_config(Path(path).parent / base)
+    for k, v in data.items():
+        merged[k] = {**merged[k], **v} if isinstance(v, dict) and isinstance(merged.get(k), dict) else v
+    return merged
+
+
 def load_config(path):
     path = Path(path).resolve()
-    with open(path, encoding="utf-8") as f:
-        data = yaml.safe_load(f)
+    data = read_config(path)
     data["tiles"] = SimpleNamespace(**data["tiles"])
     cfg = SimpleNamespace(**data)
     cfg.base_dir = path.parent          # относительные пути считаем от папки конфига
