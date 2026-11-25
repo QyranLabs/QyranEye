@@ -10,6 +10,7 @@ okutama_lying/
 okutama_train/
 test_videos/
 _to_delete/
+fimi/videos/
 
 # Результаты обработки и обучения (воспроизводятся командами из README)
 results*/
