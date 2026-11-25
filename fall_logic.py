@@ -31,11 +31,15 @@
          и рост длинной стороны по сравнению с этим же человеком стоя;
        - пока эталона нет: только вытянутость.
   2. СГЛАЖИВАНИЕ: зона по большинству голосов за vote_window_s (чтобы один
-     шумный кадр не считался падением).
+     шумный кадр не считался падением). Кадры, где позу не понять (рамка у края кадра,
+     «не человек»), не голосуют; если позу не понять за всё окно — зона None, и автомат
+     ждёт: ни падения, ни тревоги, пока человека снова не будет видно.
   3. КОНЕЧНЫЙ АВТОМАТ (метод _step):
        UP --(перешёл в DOWN быстро)--------------------> FALL?  (жёлтый)
            «быстро»: есть точки тела — плечи сдвинулись относительно щиколоток со скоростью
            >= fall_speed_min ростов в секунду; точек нет — переход короче fall_transition_s
+           (в hybrid переход считается по ФОРМЕ рамки; сеть может согласиться с формой
+           позже не больше чем на pose_net_lying_s)
        UP --(перешёл в DOWN медленнее)----------------> LYING  (просто лёг, без тревоги)
        FALL? --(через lying_alarm_s: лежал >= alarm_down_share кадров, лежит сейчас
                 и не перемещается быстрее still_speed_max)--> FALL (красный, событие в CSV)
@@ -43,10 +47,13 @@
        FALL?/FALL/LYING --(стоит recover_s подряд)----> UP
        LYING --(recover_s подряд стоит или идёт: поза переходная и скорость > still_speed_max;
               в режиме classifier — только стоит)--> UP
+  Дрон летит, снижается или приближает: прошлые положения и размеры людей пересчитываются
+  по сдвигу и масштабу кадра (warp), чтобы скорость, эталон «стоя» и перенос истории на новый
+  номер человека (_inherit) не сбивались.
 """
 
 import math
-from collections import deque
+from collections import Counter, deque
 from dataclasses import dataclass, field
 from statistics import median
 
@@ -120,6 +127,8 @@ class Track:
     geo_votes: deque = field(default_factory=deque)  # hybrid: голоса правил по форме (отдельно)
     geo_zone: str | None = None                      # hybrid: сглаженная зона только по форме
     geo_raw: str | None = None
+    geo_up_t: float | None = None                    # hybrid: когда форма последний раз «стоит»...
+    geo_down_t: float | None = None                  # ...и когда после этого стала «лежит»
     p_lying: float | None = None                     # ответ сети в этом кадре
     reach: deque = field(default_factory=deque)      # (t, dx, dy): плечи относительно щиколоток, по точкам тела
     net_down_since: float | None = None              # hybrid: с какого момента «лежит» только по сети
@@ -161,31 +170,39 @@ class FallMonitor:
         анализируемого кадра (или None). Возвращает список Track, видимых в кадре."""
         if self.view is None:
             self._decide_view(t, people)
-        if warp is not None:                     # дрон сдвинулся -> пересчитать прошлые положения людей
+        if warp is not None:     # дрон сдвинулся (снизился, приблизил) -> пересчитать прошлые положения и размеры
+            (a, b, tx), (c, d, ty) = warp
+            k = min(1.25, max(0.8, math.hypot(a, c)))   # масштаб; больше 25% за кадр — ошибка оценки сдвига
             for tr in self.tracks.values():
-                tr.path = deque((pt, warp[0][0]*x + warp[0][1]*y + warp[0][2],
-                                 warp[1][0]*x + warp[1][1]*y + warp[1][2], L) for pt, x, y, L in tr.path)
+                tr.path = deque((pt, a * x + b * y + tx, c * x + d * y + ty, L * k) for pt, x, y, L in tr.path)
+                tr.longs = deque((L * k for L in tr.longs), maxlen=tr.longs.maxlen)
+                tr.reach = deque((pt, a * dx + b * dy, c * dx + d * dy) for pt, dx, dy in tr.reach)
         current = {p[0] for p in people}
         visible = []
         for tid, box, kpts, *extra in people:
             net = extra[0] if extra else None        # ответ нейросети позы: {класс: вероятность} или число
             tr = self.tracks.get(tid)
             if tr is None:
-                tr = self._inherit(tid, box, t, current) or Track(tid, self.baseline_len)
+                tr = self._inherit(tid, box, kpts, t, current) or Track(tid, self.baseline_len)
                 self.tracks[tid] = tr
             tr.box, tr.kpts, tr.last_seen = box, kpts, t
             self._update_speed(tr, t, box)
             self._update_reach(tr, t, box, kpts)
 
             tr.raw_zone = self.classify(tr, box, kpts, net)
-            tr.zone = self._smooth(tr, t)
+            tr.zone = self._vote(tr.votes, tr.raw_zone, t)
             if self.cfg.pose_mode == "hybrid":
-                tr.geo_zone = self._vote(tr.geo_votes, tr.geo_raw, t, tr.geo_zone)
+                tr.geo_zone = self._vote(tr.geo_votes, tr.geo_raw, t)
+                if tr.geo_zone == UP:
+                    tr.geo_up_t, tr.geo_down_t = t, None
+                elif tr.geo_zone == DOWN and tr.geo_down_t is None:
+                    tr.geo_down_t = t
             self._step(tr, t)
 
-            # эталон формы пополняем только когда человек уверенно стоит И рамка сама по себе
-            # похожа на стоящего — иначе при медленном изменении формы эталон «уползает»
-            if tr.zone == UP and tr.state == UPRIGHT and self._upright_shape(box):
+            # эталон формы пополняем, только когда человек уверенно стоит, поза в этом кадре видна
+            # и рамка сама по себе похожа на стоящего — иначе эталон «уползает» (медленная смена
+            # формы, рамка, обрезанная краем кадра)
+            if tr.raw_zone is not None and tr.zone == UP and tr.state == UPRIGHT and self._upright_shape(box):
                 tr.aspects.append(self._aspect(box))
                 tr.longs.append(max(box[2] - box[0], box[3] - box[1]))
             visible.append(tr)
@@ -243,9 +260,9 @@ class FallMonitor:
                     break
         return best
 
-    def _went_down_fast(self, tr, t):
-        """Упал (быстро) или лёг сам (медленно)? Считается в момент перехода в DOWN."""
-        tr_fast = t - tr.last_up_t <= self.cfg.fall_transition_s
+    def _went_down_fast(self, tr, up, down):
+        """Упал (быстро) или лёг сам (медленно)? up — когда последний раз стоял, down — когда лёг."""
+        tr_fast = down - up <= self.cfg.fall_transition_s
         v = self._fall_speed(tr) if self.fall_speed_min and self.view == OBLIQUE else None
         return (tr_fast if v is None else v >= self.fall_speed_min), v
 
@@ -392,25 +409,16 @@ class FallMonitor:
             return DOWN
         return MID
 
-    def _smooth(self, tr, t):
-        """Большинство голосов за последние vote_window_s секунд."""
-        return self._vote(tr.votes, tr.raw_zone, t, tr.zone)
-
-    def _vote(self, votes, zone, t, prev):
+    def _vote(self, votes, zone, t):
+        """Сглаживание: зона с наибольшим числом голосов за последние vote_window_s секунд
+        (при равенстве — самая свежая). None, если ни в одном кадре окна позу понять не удалось:
+        тогда автомат ничего не решает, а не держит прошлую зону."""
         votes.append((t, zone))
-        while votes and t - votes[0][0] > self.cfg.vote_window_s:
+        while t - votes[0][0] > self.cfg.vote_window_s:
             votes.popleft()
-        counts = {}
-        for _, z in votes:
-            if z is not None:
-                counts[z] = counts.get(z, 0) + 1
-        if not counts:
-            return prev
-        best = max(counts.values())
-        # при равенстве голосов побеждает самый свежий
-        for _, z in reversed(votes):
-            if counts.get(z) == best:
-                return z
+        counts = Counter(z for _, z in votes if z is not None)
+        best = max(counts.values(), default=0)
+        return next((z for _, z in reversed(votes) if z is not None and counts[z] == best), None)
 
     def _step(self, tr, t):
         """Конечный автомат: меняет tr.state по сглаженной зоне."""
@@ -450,15 +458,22 @@ class FallMonitor:
             elif tr.state in (UNKNOWN, UPRIGHT):
                 tr.net_down_since = None
                 tr.down_since = t
-                if tr.last_up_t is None:
-                    tr.state = LYING                    # стоящим его не видели
+                # когда последний раз стоял и когда лёг. В hybrid — по форме рамки: сеть может
+                # переключиться в любой момент, и её «лежит» не должно задавать время падения
+                if c.pose_mode == "hybrid" and tr.p_lying is not None:
+                    up, down = tr.geo_up_t, tr.geo_down_t
+                    late = down is None or t - down > c.pose_net_lying_s    # сеть согласилась слишком поздно
                 else:
-                    fast, v = self._went_down_fast(tr, t)
+                    up, down, late = tr.last_up_t, t, False
+                if up is None or late:
+                    tr.state = LYING                    # стоящим его не видели (или лёг давно)
+                else:
+                    fast, v = self._went_down_fast(tr, up, down)
                     if fast:
                         tr.state = FALLING              # быстрый переход = падение
                         tr.event = {"track_id": tr.tid,
-                                    "fall_start_s": round(tr.last_up_t, 2),
-                                    "transition_s": round(t - tr.last_up_t, 2),
+                                    "fall_start_s": round(up, 2),
+                                    "transition_s": round(down - up, 2),
                                     "fall_speed": "" if v is None else round(v, 2)}
                         tr.wait_votes, tr.wait_speeds, tr.wait_net = {}, [], []
                     else:
@@ -484,6 +499,8 @@ class FallMonitor:
         """Тревога, только если человек действительно лежал всё это время и не перемещался.
         Иначе FALL? отменяется: человек встал и пошёл, или это предмет, который несут."""
         c = self.cfg
+        if z is None:
+            return                                      # позу сейчас не понять (у края кадра) — ждём
         n = sum(tr.wait_votes.values())
         share = tr.wait_votes.get(DOWN, 0) / n if n else 0.0
         speed = median(tr.wait_speeds) if len(tr.wait_speeds) >= 3 else None
@@ -505,23 +522,41 @@ class FallMonitor:
             self.events.append(tr.event)
         # иначе (лежал, не двигался, но именно сейчас не DOWN) — ждём следующего кадра
 
-    def _inherit(self, tid, box, t, current):
+    def _looks_upright(self, box, kpts):
+        """Похож ли человек в рамке на стоящего: по углу туловища, если точкам тела можно
+        доверять (под углом), иначе по форме самой рамки."""
+        c = self.cfg
+        size = max(box[2] - box[0], box[3] - box[1])
+        if self.view != NADIR and kpts is not None and size >= c.min_keypoint_px:
+            ang, length = torso_angle(kpts, c.keypoint_conf)
+            if ang is not None and length >= c.torso_min_frac * size:
+                return ang <= c.torso_upright_max_deg
+        return self._upright_shape(box)
+
+    def _inherit(self, tid, box, kpts, t, current):
         """Новый ID появился рядом с человеком, которого только что потеряли?
         При падении рамка резко меняет форму, и трекер может выдать новый номер.
         Тогда переносим историю, чтобы не потерять уже начавшееся падение."""
         c = self.cfg
         cx, cy = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
+        upright = None                                  # похож ли новый человек на стоящего (если понадобится)
         best, best_d = None, None
         for old in self.tracks.values():
             if old.tid in current or t - old.last_seen > c.inherit_s:
                 continue
-            ox1, oy1, ox2, oy2 = old.box
-            old_long = max(ox2 - ox1, oy2 - oy1)
+            # где он был в последний раз — в координатах ТЕКУЩЕГО кадра (путь сдвигается вместе с дроном)
+            _, ox, oy, old_long = old.path[-1]
             # новая рамка должна быть похожа по размеру: человек при падении не уменьшается вдвое
             size_ratio = max(box[2] - box[0], box[3] - box[1]) / max(1.0, old_long)
             if not c.inherit_size_min <= size_ratio <= c.inherit_size_max:
                 continue
-            d = math.hypot(cx - (ox1 + ox2) / 2, cy - (oy1 + oy2) / 2)
+            # лежащего (или падающего) не отдаём тому, кто рядом стоит: это другой человек, например помощник
+            if old.state in (FALLING, LYING):
+                if upright is None:
+                    upright = self._looks_upright(box, kpts)
+                if upright:
+                    continue
+            d = math.hypot(cx - ox, cy - oy)
             if d <= c.inherit_dist * old_long and (best_d is None or d < best_d):
                 best, best_d = old, d
         if best is None:
