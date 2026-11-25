@@ -330,7 +330,9 @@ class FallMonitor:
             tr.cue = f"x{ratio:.1f}"
             if ratio < c.aspect_up_factor:
                 return UP
-            if ratio >= c.aspect_down_factor:
+            # «Лежит» — только если рамка и выросла, и сама по себе шире, чем у стоящего:
+            # иначе присевший человек, который стоя был очень узким, выглядит как упавший.
+            if ratio >= c.aspect_down_factor and aspect > c.aspect_abs_upright_max:
                 return DOWN
             return MID
 

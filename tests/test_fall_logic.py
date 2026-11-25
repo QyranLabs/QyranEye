@@ -123,6 +123,12 @@ if not ok: fails.append("R1")
 run("R2 медленный дрейф формы -> LYING, не UP",
     lambda t: (1, box(ramp(t, 3, 7, 36, 63), ramp(t, 3, 7, 60, 38)), None), "LYING", 0, "oblique")
 
+# R3: очень узкий стоя (28x82), присел и сидит (53x82): рамка выросла в 1.9 раза, но она всё ещё выше, чем шире
+# (NOMAD Actor035: раньше ложная тревога). R4: тот же человек по-настоящему упал -> тревога остаётся
+NARROW, SIT, FELL = box(28, 82), box(53, 82), box(85, 60)
+run("R3 узкий человек присел и сидит", lambda t: (1, NARROW if t < 3 else SIT, None), "UP", 0, "oblique")
+run("R4 узкий человек упал", lambda t: (1, NARROW if t < 3 else FELL, None), "FALL", 1, "oblique")
+
 # ---------------- ПРОВЕРКА ПЕРЕД ТРЕВОГОЙ, КРАЙ КАДРА, ДВИЖЕНИЕ ДРОНА ----------------
 print("=== проверка перед тревогой ===")
 def loop(name, frame_fn, expect_alarms, expect_state=None, view="oblique", secs=20, frame_size=None, pose_mode="geometry"):
