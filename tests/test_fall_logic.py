@@ -129,6 +129,19 @@ NARROW, SIT, FELL = box(28, 82), box(53, 82), box(85, 60)
 run("R3 узкий человек присел и сидит", lambda t: (1, NARROW if t < 3 else SIT, None), "UP", 0, "oblique")
 run("R4 узкий человек упал", lambda t: (1, NARROW if t < 3 else FELL, None), "FALL", 1, "oblique")
 
+# R5 (NOMAD Actor099): человека впервые увидели лежащим, он встал и 10 с идёт, рамка «дышит» (w/h 0.68-1.12),
+# потом падает. Раньше LYING держался всю ходьбу, и падения система не видела.
+def r5(t):
+    if t < 4: b = box(150, 100, cx=400)
+    elif t < 14: b = box(100 * (.9 + .22 * math.sin(2 * math.pi * t)), 100, cx=400 + 90 * (t - 4))
+    else: b = box(165, 75, cx=1300)
+    return (1, b, None)
+run("R5 лежал, встал, идёт -> UP", r5, "UP", 0, "oblique", secs=13.5)
+run("R5b ...и упал -> тревога", r5, "FALL", 1, "oblique", secs=22)
+# R6: лежит на месте, рамка дрожит (w/h 0.95-1.45, поза часто переходная) -> LYING не снимается
+run("R6 лежит, рамка дрожит", lambda t: (1, box(160, 100) if t < 3 else
+    box(120 + 25 * math.sin(5 * t), 100, cx=500 + 10 * math.sin(9 * t)), None), "LYING", 0, "oblique")
+
 # ---------------- ПРОВЕРКА ПЕРЕД ТРЕВОГОЙ, КРАЙ КАДРА, ДВИЖЕНИЕ ДРОНА ----------------
 print("=== проверка перед тревогой ===")
 def loop(name, frame_fn, expect_alarms, expect_state=None, view="oblique", secs=20, frame_size=None, pose_mode="geometry"):

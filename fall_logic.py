@@ -39,6 +39,8 @@
                 и не перемещается быстрее still_speed_max)--> FALL (красный, событие в CSV)
        FALL? --(через lying_alarm_s: лежал мало или перемещается)--> отмена (UP или LYING)
        FALL?/FALL/LYING --(стоит recover_s подряд)----> UP
+       LYING --(recover_s подряд стоит или идёт: поза переходная и скорость > still_speed_max;
+              в режиме classifier — только стоит)--> UP
 """
 
 import math
@@ -369,8 +371,15 @@ class FallMonitor:
         c = self.cfg
         z = tr.zone
 
-        if z == UP:
-            tr.last_up_t = t
+        # «Лежит» (LYING), но поза переходная и человек перемещается — значит, он встал и идёт: при ходьбе
+        # рамка то шире, то уже, и «стоит» recover_s подряд может не набраться. Тревогу (FALL) это не снимает.
+        # В режиме classifier не применяем: там MID значит «сеть сомневается», и терялись лежащие.
+        walking = (c.pose_mode != "classifier" and tr.state == LYING and z == MID
+                   and tr.speed is not None and tr.speed > c.still_speed_max)
+
+        if z == UP or walking:
+            if z == UP:
+                tr.last_up_t = t
             if tr.state in (FALLING, FALLEN, LYING):
                 if tr.up_since is None:
                     tr.up_since = t
