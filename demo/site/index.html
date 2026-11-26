@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QyranEye</title>
+<meta name="description" content="QyranEye finds people who fell and lie still in drone video, so rescuers check the right spot first. Working prototype.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🚁</text></svg>">
+<style>
+  :root { --bg:#f7f8fa; --card:#ffffff; --text:#14181f; --muted:#5b6472; --line:#e3e6eb; --accent:#c62828; --ok:#1f8a3b; --link:#1f5fbf; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#0f1216; --card:#171b21; --text:#e8ebef; --muted:#9aa3af; --line:#2a3039; --accent:#ef5350; --ok:#4caf50; --link:#7fb0ff; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  a { color:var(--link); }
+  .wrap { max-width:1040px; margin:0 auto; padding:0 16px; }
+  header { padding:40px 0 16px; }
+  .brand { font-weight:700; letter-spacing:.02em; color:var(--muted); font-size:14px; text-transform:uppercase; }
+  h1 { font-size:clamp(28px,5vw,44px); line-height:1.15; margin:8px 0 12px; }
+  .lead { font-size:clamp(17px,2.2vw,20px); color:var(--muted); max-width:760px; margin:0; }
+  .cta { display:flex; flex-wrap:wrap; gap:12px; margin:24px 0 8px; }
+  .btn { display:inline-block; padding:12px 18px; border-radius:10px; font-weight:600; text-decoration:none; border:1px solid var(--line); background:var(--card); color:var(--text); }
+  .btn.primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  section { padding:28px 0; border-top:1px solid var(--line); }
+  h2 { font-size:24px; margin:0 0 6px; }
+  .sub { color:var(--muted); margin:0 0 18px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:16px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; overflow:hidden; }
+  .card video { width:100%; display:block; background:#000; aspect-ratio:16/9; }
+  .card .body { padding:12px 14px 16px; }
+  .tag { display:inline-block; font-size:13px; font-weight:700; padding:2px 8px; border-radius:999px; margin-bottom:6px; }
+  .tag.alarm { background:rgba(229,57,53,.14); color:var(--accent); }
+  .tag.ok { background:rgba(31,138,59,.14); color:var(--ok); }
+  .card h3 { margin:0 0 4px; font-size:17px; }
+  .card p { margin:0; color:var(--muted); font-size:14px; }
+  .legend { display:flex; flex-wrap:wrap; gap:8px 18px; font-size:14px; color:var(--muted); margin-top:14px; }
+  .sw { display:inline-block; width:12px; height:12px; border-radius:3px; margin-right:6px; vertical-align:-1px; }
+  .steps { counter-reset:s; list-style:none; padding:0; margin:0; display:grid; gap:10px; }
+  .steps li { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px 12px 52px; position:relative; }
+  .steps li::before { counter-increment:s; content:counter(s); position:absolute; left:14px; top:12px; width:26px; height:26px; border-radius:50%; background:var(--text); color:var(--bg); font-weight:700; display:grid; place-items:center; font-size:14px; }
+  .app { background:var(--card); border:1px solid var(--line); border-radius:14px; overflow:hidden; }
+  .app iframe { width:100%; height:1350px; border:0; display:block; }
+  .note { font-size:14px; color:var(--muted); margin-top:10px; }
+  ul.limits { margin:0; padding-left:20px; }
+  ul.limits li { margin:4px 0; }
+  footer { padding:28px 0 40px; color:var(--muted); font-size:13px; border-top:1px solid var(--line); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">🚁 QyranEye · prototype</div>
+    <h1>Find the person who fell — before it is too late.</h1>
+    <p class="lead">QyranEye watches drone video and raises an alarm when a person <b>falls and stays down</b>.
+      A rescuer then checks that spot first, instead of watching hours of footage.</p>
+    <div class="cta">
+      <a class="btn primary" href="#try">Try it with your video</a>
+      <a class="btn" href="#examples">See examples</a>
+    </div>
+  </header>
+
+  <section id="examples">
+    <h2>Examples</h2>
+    <p class="sub">Processed by the system — boxes and labels are drawn by QyranEye itself.</p>
+    <div class="grid">
+      <div class="card">
+        <video src="examples/1_real_fall_in_snow.mp4" poster="examples/1_real_fall_in_snow.jpg" controls muted playsinline preload="none"></video>
+        <div class="body"><span class="tag alarm">ALARM at 21.0 s</span>
+          <h3>Real fall in the snow</h3>
+          <p>He stumbles at the start and gets up (no alarm), then collapses at 17 s and stays down: alarm 4 s later.</p></div>
+      </div>
+      <div class="card">
+        <video src="examples/2_lies_down_on_purpose.mp4" poster="examples/2_lies_down_on_purpose.jpg" controls muted playsinline preload="none"></video>
+        <div class="body"><span class="tag ok">No alarm</span>
+          <h3>Lies down on purpose (drone, 10 m)</h3>
+          <p>Walks, squats and lies down slowly by himself: marked LYING (blue), not a fall.</p></div>
+      </div>
+      <div class="card">
+        <video src="examples/3_walk_and_lie_down.mp4" poster="examples/3_walk_and_lie_down.jpg" controls muted playsinline preload="none"></video>
+        <div class="body"><span class="tag ok">No alarm</span>
+          <h3>Walks, hides, lies down (drone, 10 m)</h3>
+          <p>Hides in the grass and lies down on the sand by herself: no false alarm.</p></div>
+      </div>
+    </div>
+    <div class="legend">
+      <span><i class="sw" style="background:#1fa83a"></i>standing / walking</span>
+      <span><i class="sw" style="background:#e0b000"></i>FALL? — went down fast, waiting 4 s</span>
+      <span><i class="sw" style="background:#e53935"></i>FALL — alarm</span>
+      <span><i class="sw" style="background:#2f80ed"></i>LYING — lying, no fall seen</span>
+      <span><b>CHECK</b> — lying still 10 s, operator should look</span>
+    </div>
+  </section>
+
+  <section id="how">
+    <h2>How it works</h2>
+    <p class="sub">Recorded drone video in, alarms out. A person always makes the final decision.</p>
+    <ol class="steps">
+      <li><b>Find people</b> in every frame (YOLO26 neural network) and follow each one, correcting for the drone's own movement.</li>
+      <li><b>Read the body posture</b>: standing, in between, or lying — from the shape of the person and, for larger people, from body keypoints (shoulders, hips, ankles).</li>
+      <li><b>Fall or lie down?</b> How fast the shoulders move relative to the feet: fast = fall, slow = lying down on purpose.</li>
+      <li><b>Confirm</b>: the person must really be seen lying and not moving for 4 seconds. Then: <b>alarm</b>. Lying still 10 s without a fall: <b>CHECK</b>.</li>
+    </ol>
+  </section>
+
+  <section id="try">
+    <h2>Try it with your own video</h2>
+    <p class="sub">Upload a drone video up to 30 s and choose the camera view. It runs on a free cloud server:
+      the first visit can take ~30 s to wake up, and one video takes about 2–5 minutes.</p>
+    <div class="app">
+      <iframe src="https://zhangir954--qyraneye-ui.us-east.modal.run/" title="QyranEye demo" loading="lazy" allow="clipboard-write"></iframe>
+    </div>
+    <p class="note">Not loading? Open the demo directly:
+      <a href="https://zhangir954--qyraneye-ui.us-east.modal.run/" target="_blank" rel="noopener">zhangir954--qyraneye-ui.us-east.modal.run</a>.
+      Uploaded videos are processed in a temporary folder and deleted; nothing is kept.</p>
+  </section>
+
+  <section id="status">
+    <h2>Where we are — honestly</h2>
+    <ul class="limits">
+      <li>Tested on public drone datasets (Okutama-Action, NOMAD, MOD20): <b>no false alarms</b> on the clips we checked, but these contain no real falls — only one real fall video so far.</li>
+      <li>Next: our own drone filming (FIMI X8 SE, 5–20 m) with 36 staged falls and 72 normal actions, scored once on people the system was never tuned on.</li>
+      <li>Hard cases today: very small people (&lt; 80 px), straight-down camera, people hidden in grass, and lying down quickly on purpose (looks like a fall — the operator decides).</li>
+    </ul>
+  </section>
+
+  <footer>
+    QyranEye — student team. Prototype for search &amp; rescue research.<br>
+    Detector and keypoints: Ultralytics YOLO26 (AGPL-3.0). Example videos: Mixkit (free licence); NOMAD dataset —
+    A. M. Russell Bernal et al., WACV 2024, CC BY 4.0.
+  </footer>
+</div>
+</body>
+</html>

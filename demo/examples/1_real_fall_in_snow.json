@@ -1,0 +1,29 @@
+{
+ "summary": "## 🚨 Fall detected: 1 alarm\n- person **#1** went down at **17.0 s**, alarm at **21.0 s** (lay still ≥ 4 s after falling)\n\nCamera view: **oblique** · analysed 21.7 s of video",
+ "description": "A man stumbles at the start and gets up by himself (no alarm), then at 17 s collapses into the snow and lies still: alarm 4 s later.",
+ "credit": "Mixkit (free licence)",
+ "alarms": [
+  {
+   "video": "input.mp4",
+   "camera_view": "oblique",
+   "track_id": "1",
+   "earlier_ids": "",
+   "fall_start_s": "16.96",
+   "fall_start_time": "00:16.96",
+   "alarm_s": "21.04",
+   "alarm_time": "00:21.04",
+   "alarm_frame": "526",
+   "transition_s": "0.08",
+   "fall_speed": "2.3",
+   "down_share": "1.0",
+   "speed": "0.07",
+   "recovered_s": "",
+   "x1": "557",
+   "y1": "529",
+   "x2": "747",
+   "y2": "630"
+  }
+ ],
+ "checks": [],
+ "title": "Real fall in the snow → alarm"
+}

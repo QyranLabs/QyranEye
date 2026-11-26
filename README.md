@@ -361,6 +361,16 @@ python3 -m venv .venv
 * Модели YOLO — Ultralytics (AGPL-3.0).
 * Большие данные и результаты (`drone videos/`, `okutama_*`, `results*/`, `runs/`) в git не хранятся.
 
+## Онлайн-демо (для жюри)
+
+* Сайт: https://conrad-qyran.pages.dev (позже https://qyraneye.space) — примеры и проверка своего видео.
+* Обработка: https://zhangir954--qyraneye-ui.us-east.modal.run — тот же конвейер на облачном CPU (Modal,
+  бесплатные кредиты), видео до 30 с, 1–5 минут; после 10 минут без посетителей засыпает (~30 с на пробуждение).
+* Файлы: `demo/app.py` (Gradio, тот же `video_pipeline.py` + `fall_logic.py`), `demo/modal_app.py` (облако),
+  `demo/make_examples.py` (готовые примеры), `demo/site/` (страница для Cloudflare Pages; видео примеров в git не хранятся).
+* Локально: `.venv/bin/python demo/app.py` → http://127.0.0.1:7860. Обновить облако: `.venv/bin/modal deploy demo/modal_app.py`
+  (после проверки: облако сейчас работает на версии 425cebd). `demo/build_space.py` — для Hugging Face (нужен PRO).
+
 ## Как работаем вдвоём
 
 1. Перед работой: `git pull`. Новая работа — в своей ветке (`git switch -c имя`), в `main` — через pull request.

@@ -1,0 +1,8 @@
+{
+ "summary": "## ✅ No fall alarm\n\nCamera view: **oblique** · analysed 36.0 s of video",
+ "description": "Drone at 10 m. The person walks, squats and lies down by himself, slowly: shown as LYING (blue), no fall alarm.",
+ "credit": "NOMAD dataset, actor 042 (A. M. Russell Bernal et al., WACV 2024, CC BY 4.0), first 36 s",
+ "alarms": [],
+ "checks": [],
+ "title": "Lies down on purpose (drone, 10 m) → no alarm"
+}

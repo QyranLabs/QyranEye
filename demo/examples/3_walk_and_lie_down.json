@@ -1,0 +1,8 @@
+{
+ "summary": "## ✅ No fall alarm\n\nCamera view: **oblique** · analysed 42.0 s of video",
+ "description": "Drone at 10 m. The person walks, hides in the grass and lies down on the sand by herself: no fall alarm.",
+ "credit": "NOMAD dataset, actor 099 (A. M. Russell Bernal et al., WACV 2024, CC BY 4.0), first 42 s",
+ "alarms": [],
+ "checks": [],
+ "title": "Walks, hides, lies down (drone, 10 m) → no alarm"
+}
