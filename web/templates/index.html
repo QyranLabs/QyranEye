@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QyranEye — демо</title>
+<style>
+  :root{
+    --bg:#0b1220; --panel:#121b2e; --panel2:#18233a; --line:#25324d;
+    --text:#e8edf6; --muted:#8d9ab3; --accent:#f2b134; --accent2:#ffcf6b;
+    --up:#22c55e; --lying:#3b82f6; --falling:#facc15; --fall:#ef4444; --check:#fb923c;
+    --radius:14px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+       font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:1100px;margin:0 auto;padding:28px 20px 60px}
+  header{display:flex;align-items:center;gap:14px;margin-bottom:26px}
+  .logo{width:42px;height:42px;border-radius:12px;background:linear-gradient(135deg,var(--accent),#e0761c);
+        display:grid;place-items:center;font-weight:800;color:#1a1204;font-size:20px}
+  h1{margin:0;font-size:22px}
+  .tag{color:var(--muted);font-size:14px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:22px;margin-bottom:18px}
+  h2{font-size:17px;margin:0 0 14px}
+  .drop{display:block;border:2px dashed var(--line);border-radius:var(--radius);padding:36px 20px;text-align:center;
+        cursor:pointer;transition:.15s;background:var(--panel2)}
+  .drop:hover,.drop.over{border-color:var(--accent);background:#1d2944}
+  .drop.compact{padding:16px 20px}
+  .drop b{color:var(--accent2)}
+  .hint{color:var(--muted);font-size:13px;margin-top:6px}
+  .preview{margin-top:16px}
+  .preview video{width:100%;max-height:340px;object-fit:contain;border-radius:10px;background:#000;display:block}
+  .previewHead{font-size:14px;color:var(--muted);margin-bottom:8px}
+  .ok{color:var(--up);font-weight:700}
+  .label{font-size:14px;font-weight:600;margin:18px 0 8px}
+  .seg{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .seg input{display:none}
+  .seg label{border:1px solid var(--line);border-radius:10px;padding:10px 12px;cursor:pointer;background:var(--panel2);font-size:14px}
+  .seg label small{display:block;color:var(--muted);font-size:12px;margin-top:2px}
+  .seg input:checked + label{border-color:var(--accent);background:#2a2412}
+  .row{display:flex;gap:12px;align-items:center;margin-top:18px;flex-wrap:wrap}
+  .file{color:var(--muted);font-size:14px;flex:1;min-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  button{background:var(--accent);color:#1a1204;border:0;border-radius:10px;padding:11px 20px;font-weight:700;font-size:15px;cursor:pointer}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  button.ghost{background:transparent;color:var(--text);border:1px solid var(--line);font-weight:600}
+  .bar{height:10px;background:var(--panel2);border-radius:99px;overflow:hidden;margin-top:12px}
+  .bar>i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--accent2));transition:width .4s}
+  .muted{color:var(--muted)}
+  .err{color:var(--fall);margin-top:12px}
+  .hidden{display:none!important}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:16px}
+  .stat .n{font-size:28px;font-weight:800;line-height:1.2}
+  .stat .l{color:var(--muted);font-size:13px}
+  .stat.fall .n{color:var(--fall)} .stat.check .n{color:var(--check)}
+  .stat .n.small{font-size:20px;padding-top:6px}
+  .banner{border-radius:12px;padding:14px 16px;margin-bottom:18px;font-weight:600}
+  .banner.alarm{background:#3a1218;border:1px solid var(--fall);color:#ffd5d5}
+  .banner.calm{background:#10261a;border:1px solid #1f6b3e;color:#c9f5da}
+  .banner.warn{background:#2f2410;border:1px solid #7a5a12;color:#ffe6a8;font-weight:500;font-size:14px}
+  video#player{width:100%;border-radius:10px;background:#000;display:block}
+  .tl{position:relative;margin-top:14px;cursor:pointer}
+  .tl canvas{width:100%;height:90px;display:block;background:var(--panel2);border-radius:8px}
+  .tl .cursor{position:absolute;top:0;width:2px;height:90px;background:#fff;pointer-events:none}
+  .legend{display:flex;gap:16px;font-size:12px;color:var(--muted);margin-top:10px;flex-wrap:wrap}
+  .legend span::before{content:"";display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:-1px;background:var(--c)}
+  .events{display:grid;gap:10px}
+  .ev{display:flex;gap:14px;align-items:center;background:var(--panel2);border:1px solid var(--line);
+      border-radius:12px;padding:10px;cursor:pointer;transition:.15s}
+  .ev:hover{border-color:var(--accent)}
+  .ev img{width:170px;height:110px;object-fit:cover;border-radius:8px;background:#000;flex-shrink:0}
+  .ev .t{font-weight:700}
+  .ev .time{font-variant-numeric:tabular-nums;color:var(--accent2);font-weight:700}
+  .badge{font-size:11px;padding:3px 8px;border-radius:99px;font-weight:700;margin-left:8px}
+  .badge.fall{background:#3a1520;color:var(--fall)} .badge.check{background:#3a2410;color:var(--check)}
+  .states{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;font-size:13px}
+  .states div{background:var(--panel2);border-radius:10px;padding:10px;border-left:4px solid var(--c)}
+  .states b{display:block;margin-bottom:2px}
+  .downloads{display:flex;gap:10px;flex-wrap:wrap}
+  .downloads a{color:var(--text);text-decoration:none;border:1px solid var(--line);padding:9px 14px;border-radius:10px;font-size:14px}
+  .downloads a:hover{border-color:var(--accent)}
+  .note{font-size:13px;color:var(--muted);border-left:3px solid var(--accent);padding:4px 0 4px 12px;margin-top:16px}
+  @media (max-width:760px){.stats,.seg{grid-template-columns:repeat(2,1fr)}.states{grid-template-columns:repeat(2,1fr)}.ev img{width:120px;height:80px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">Q</div>
+    <div>
+      <h1>QyranEye</h1>
+      <div class="tag">Загрузите видео с дрона — система найдёт людей и отметит упавших</div>
+    </div>
+  </header>
+
+  <div class="card" id="uploadCard">
+    <h2>1. Видео с дрона</h2>
+    <label class="drop" id="drop">
+      <input type="file" id="file" accept="video/*,.mp4,.mov,.avi,.mkv,.m4v" hidden>
+      <div id="dropText"><b>Перетащите видео сюда</b> или нажмите, чтобы выбрать файл</div>
+      <div class="hint">MP4, MOV, AVI, MKV · съёмка с высоты 5–20 м</div>
+    </label>
+    <div class="preview hidden" id="previewBox">
+      <div class="previewHead"><span class="ok">✓ Видео выбрано</span> — проверьте, что это нужный файл</div>
+      <video id="preview" controls muted playsinline></video>
+    </div>
+
+    <div class="label">2. Как снимала камера?</div>
+    <div class="seg">
+      <input type="radio" name="view" id="v_obl" value="oblique" checked>
+      <label for="v_obl">Под углом<small>45–60°, видно людей сбоку</small></label>
+      <input type="radio" name="view" id="v_nad" value="nadir">
+      <label for="v_nad">Строго сверху<small>камера смотрит вниз</small></label>
+      <input type="radio" name="view" id="v_auto" value="auto">
+      <label for="v_auto">Не знаю<small>угадать (ненадёжно при 1–2 людях)</small></label>
+    </div>
+
+    <div class="row">
+      <div class="file" id="fileName">Файл не выбран</div>
+      <button id="go" disabled>Анализировать</button>
+    </div>
+    <div class="err hidden" id="uploadErr"></div>
+  </div>
+
+  <div class="card hidden" id="progressCard">
+    <h2>Идёт анализ…</h2>
+    <div class="muted" id="progressText">Загружаем видео</div>
+    <div class="bar"><i id="barFill"></i></div>
+    <div class="hint" id="progressHint"></div>
+  </div>
+
+  <div id="results" class="hidden">
+    <div id="banner"></div>
+    <div class="stats">
+      <div class="stat fall"><div class="n" id="sAlarms">0</div><div class="l">Тревоги FALL (падение)</div></div>
+      <div class="stat check"><div class="n" id="sChecks">0</div><div class="l">Сигналы CHECK (лежит без движения)</div></div>
+      <div class="stat"><div class="n" id="sPeople">0</div><div class="l" id="sPeopleL">Людей в кадре</div></div>
+      <div class="stat"><div class="n small" id="sView">—</div><div class="l" id="sViewL">Ракурс</div></div>
+    </div>
+
+    <div class="card">
+      <h2>Видео с разметкой</h2>
+      <video id="player" controls playsinline></video>
+      <div class="note hidden" id="codecNote">Браузер не может показать это видео — скачайте его ниже и откройте в QuickTime или VLC.</div>
+      <div class="tl" id="tl"><canvas id="tlc" height="90"></canvas><div class="cursor" id="cursor"></div></div>
+      <div class="legend">
+        <span style="--c:var(--up)">стоит / идёт</span>
+        <span style="--c:var(--lying)">лежит</span>
+        <span style="--c:var(--falling)">возможно упал</span>
+        <span style="--c:var(--fall)">упал — тревога</span>
+        <span class="muted">Высота полосы — сколько людей в кадре. Нажмите, чтобы перейти к моменту.</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>События</h2>
+      <div class="events" id="events"></div>
+    </div>
+
+    <div class="card">
+      <h2>Что означают цвета рамок</h2>
+      <div class="states">
+        <div style="--c:var(--up)"><b>UP</b>стоит или идёт</div>
+        <div style="--c:var(--falling)"><b>FALL?</b>быстро оказался на земле — ждём 4 с</div>
+        <div style="--c:var(--fall)"><b>FALL</b>упал и лежит 4 с без движения — тревога</div>
+        <div style="--c:var(--lying)"><b>LYING</b>лежит, но падения не было</div>
+        <div style="--c:var(--check)"><b>CHECK</b>лежит без движения 10 с — посмотрите</div>
+      </div>
+      <div class="note">QyranEye подсказывает оператору, куда посмотреть. Это не медицинский диагноз: решение всегда
+        принимает человек. Точнее всего система работает, когда ракурс камеры указан верно.</div>
+    </div>
+
+    <div class="card">
+      <h2>Файлы</h2>
+      <div class="downloads" id="downloads"></div>
+      <div class="hint" id="techInfo"></div>
+    </div>
+
+    <button class="ghost" onclick="location.reload()">Проанализировать другое видео</button>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const fileInput = $("file"), drop = $("drop"), go = $("go");
+let chosen = null;
+const C = {up:"#22c55e", lying:"#3b82f6", falling:"#facc15", fall:"#ef4444", check:"#fb923c"};
+const fmt = t => { t = Number(t); const m = Math.floor(t/60); return `${String(m).padStart(2,"0")}:${(t%60).toFixed(1).padStart(4,"0")}`; };
+const VIEW = {oblique:"под углом", nadir:"сверху"};
+
+function pick(f){
+  if(!f) return;
+  chosen = f;
+  $("fileName").textContent = `${f.name} · ${(f.size/1048576).toFixed(1)} МБ`;
+  go.disabled = false;
+  const pv = $("preview");
+  if(pv.src) URL.revokeObjectURL(pv.src);
+  pv.src = URL.createObjectURL(f);
+  $("previewBox").classList.remove("hidden");
+  drop.classList.add("compact");
+  $("dropText").innerHTML = "<b>Выбрать другое видео</b> — нажмите или перетащите сюда";
+}
+fileInput.onchange = e => pick(e.target.files[0]);
+["dragenter","dragover"].forEach(ev => drop.addEventListener(ev, e => {e.preventDefault(); drop.classList.add("over");}));
+["dragleave","drop"].forEach(ev => drop.addEventListener(ev, e => {e.preventDefault(); drop.classList.remove("over");}));
+drop.addEventListener("drop", e => pick(e.dataTransfer.files[0]));
+
+go.onclick = () => {
+  if(!chosen) return;
+  go.disabled = true;
+  $("uploadErr").classList.add("hidden");
+  $("progressCard").classList.remove("hidden");
+  const fd = new FormData();
+  fd.append("video", chosen);
+  fd.append("view", document.querySelector("input[name=view]:checked").value);
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", "/api/analyze");
+  xhr.upload.onprogress = e => {
+    if(e.lengthComputable){
+      const p = e.loaded/e.total*100;
+      $("barFill").style.width = (p*0.1)+"%";
+      $("progressText").textContent = `Загружаем видео: ${p.toFixed(0)}%`;
+    }
+  };
+  xhr.onload = () => {
+    let data = {}; try { data = JSON.parse(xhr.responseText); } catch(e) {}
+    if(xhr.status !== 200) return fail(data.error || "Ошибка загрузки");
+    poll(data.job_id);
+  };
+  xhr.onerror = () => fail("Нет связи с программой. Она запущена в Терминале?");
+  xhr.send(fd);
+};
+
+function fail(msg){
+  $("progressCard").classList.add("hidden");
+  $("uploadErr").textContent = msg; $("uploadErr").classList.remove("hidden");
+  go.disabled = false;
+}
+
+function poll(id){
+  fetch(`/api/status/${id}`).then(r => r.json()).then(j => {
+    if(j.state === "done") return show(id, j.result);
+    if(j.state === "error") return fail(j.error);
+    let text = "В очереди…", pct = 10;
+    if(j.state === "loading") text = "Загружаем нейросети (первый запуск может занять минуту)…";
+    if(j.state === "running"){
+      const p = j.duration ? Math.min(j.t / j.duration, 1) : 0;
+      pct = 10 + p*90;
+      text = `Анализируем: ${fmt(j.t)} из ${fmt(j.duration)} видео (${(p*100).toFixed(0)}%)`;
+      if(p > 0.03){
+        const left = j.elapsed / p - j.elapsed;
+        $("progressHint").textContent = `Осталось примерно ${left < 60 ? Math.ceil(left) + " с" : Math.ceil(left/60) + " мин"}`;
+      }
+    }
+    $("barFill").style.width = pct + "%";
+    $("progressText").textContent = text;
+    setTimeout(() => poll(id), 800);
+  }).catch(() => setTimeout(() => poll(id), 1500));
+}
+
+function drawTimeline(r){
+  const cv = $("tlc"), tl = r.timeline, D = r.duration || 1;
+  const W = cv.clientWidth * devicePixelRatio, H = 90 * devicePixelRatio;
+  cv.width = W; cv.height = H;
+  const g = cv.getContext("2d");
+  const maxP = Math.max(1, r.people_max);
+  const pad = 6 * devicePixelRatio, h = H - 2*pad;
+  for(let i = 0; i < tl.length; i++){
+    const [t, n, up, ly, fa, fl] = tl[i];
+    const tNext = i + 1 < tl.length ? tl[i+1][0] : D;
+    const x = t / D * W, w = Math.max(1, (tNext - t) / D * W + 0.5);
+    let y = H - pad;
+    for(const [cnt, col] of [[up, C.up], [ly, C.lying], [fa, C.falling], [fl, C.fall]]){
+      if(!cnt) continue;
+      const hh = cnt / maxP * h;
+      g.fillStyle = col; g.globalAlpha = col === C.up ? 0.55 : 0.95;
+      g.fillRect(x, y - hh, w, hh); y -= hh;
+    }
+  }
+  g.globalAlpha = 1;
+  const mark = (t, col) => { const x = t / D * W; g.fillStyle = col; g.fillRect(x - devicePixelRatio, 0, 3*devicePixelRatio, H); };
+  r.checks.forEach(e => mark(e.check_s, C.check));
+  r.alarms.forEach(e => mark(e.alarm_s, C.fall));
+}
+
+function show(id, r){
+  $("uploadCard").classList.add("hidden");
+  $("progressCard").classList.add("hidden");
+  $("results").classList.remove("hidden");
+  const base = `/runs/${id}/`;
+
+  const nA = r.alarms.length, nC = r.checks.length;
+  $("banner").innerHTML =
+    (nA ? `<div class="banner alarm">⚠ Обнаружено падение: ${nA}. Первая тревога на ${fmt(r.alarms[0].alarm_s)}.</div>`
+        : `<div class="banner calm">Падений не обнаружено${nC ? ", но есть сигналы CHECK — посмотрите их ниже" : ""}.</div>`)
+    + (!r.complete ? `<div class="banner warn">Видео обработано не полностью — результаты только до места остановки.</div>` : "")
+    + (r.view_requested === "auto" && !r.view_sure ? `<div class="banner warn">Ракурс определён неуверенно (мало людей). Если камера смотрела иначе, запустите ещё раз с выбранным ракурсом: от этого зависит точность.</div>` : "");
+
+  $("sAlarms").textContent = nA;
+  $("sChecks").textContent = nC;
+  $("sPeople").textContent = r.people_max;
+  $("sPeopleL").textContent = `Людей в кадре максимум (в среднем ${r.people_avg})`;
+  $("sView").textContent = VIEW[r.view] || "—";
+  $("sViewL").textContent = r.view_requested === "auto" ? "Ракурс (определён автоматически)" : "Ракурс (указан вами)";
+
+  const player = $("player");
+  player.src = base + r.files.video;
+  if(!r.playable) $("codecNote").classList.remove("hidden");
+  player.onerror = () => $("codecNote").classList.remove("hidden");
+  const seek = t => { player.currentTime = Math.max(0, Number(t) - 1); player.play(); player.scrollIntoView({behavior:"smooth", block:"center"}); };
+
+  drawTimeline(r);
+  window.addEventListener("resize", () => drawTimeline(r));
+  const tl = $("tl"), D = r.duration || 1;
+  tl.onclick = ev => { const b = tl.getBoundingClientRect(); player.currentTime = (ev.clientX - b.left) / b.width * D; player.play(); };
+  player.ontimeupdate = () => $("cursor").style.left = (player.currentTime / D * 100) + "%";
+
+  const box = $("events");
+  const items = [
+    ...r.alarms.map(e => ({t: +e.alarm_s, html: `
+      ${e.snapshot ? `<img src="${base}snapshots/${e.snapshot}" alt="">` : ""}
+      <div><div><span class="time">${fmt(e.alarm_s)}</span><span class="badge fall">FALL · ТРЕВОГА</span></div>
+        <div class="t">Человек #${e.track_id} упал и не встаёт</div>
+        <div class="muted">Падение началось на ${fmt(e.fall_start_s)}, тревога через ${(e.alarm_s - e.fall_start_s).toFixed(1)} с
+        ${e.fall_speed ? ` · скорость падения ${(+e.fall_speed).toFixed(2)} роста/с` : ""}</div></div>`})),
+    ...r.checks.map(e => ({t: +e.check_s, html: `
+      ${e.snapshot ? `<img src="${base}snapshots/${e.snapshot}" alt="">` : ""}
+      <div><div><span class="time">${fmt(e.check_s)}</span><span class="badge check">CHECK</span></div>
+        <div class="t">Человек #${e.track_id} лежит без движения 10 с</div>
+        <div class="muted">Падения система не видела (мог лечь сам или упасть медленно). Посмотрите сами.</div></div>`})),
+  ].sort((a, b) => a.t - b.t);
+  if(!items.length) box.innerHTML = `<div class="muted">Тревог и сигналов CHECK нет. Всех найденных людей и их состояния видно на видео выше.</div>`;
+  items.forEach(it => {
+    const d = document.createElement("div");
+    d.className = "ev"; d.innerHTML = it.html; d.onclick = () => seek(it.t);
+    box.appendChild(d);
+  });
+
+  const dl = $("downloads");
+  [["Видео с разметкой", r.files.video], ["Тревоги (CSV)", r.files.events], ["Сигналы CHECK (CSV)", r.files.checks]]
+    .forEach(([label, f]) => dl.insertAdjacentHTML("beforeend", `<a href="${base}${f}?download=1">⬇ ${label}</a>`));
+  $("techInfo").textContent = `${r.video_name} · ${r.width}×${r.height}, ${r.fps} к/с, ${fmt(r.duration)} · обработано за ${Math.round(r.processing_s)} с на ${r.device}`
+    + (r.cancelled ? ` · ${r.cancelled} подозрений на падение отменено проверкой` : "");
+}
+</script>
+</body>
+</html>
