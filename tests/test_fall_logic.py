@@ -165,6 +165,47 @@ def s5(t):
     return (1, *body(ramp(t, 3, 1.5, 0, 25) if t < 4.5 else ramp(t, 4.5, .6, 25, 65) if t < 5.1 else ramp(t, 5.1, 1.5, 65, 88)))
 run("S5 лёг сам рывком в середине -> LYING", s5, "LYING", 0, "oblique")
 
+# ---------------- ТРЕВОГА ТОЛЬКО ПРО ТОГО, КОГО ВИДЕЛИ (Okutama 2.2.9) ----------------
+print("=== видели ли мы его ===")
+# W1: упал и сразу пропал из кадра (дрон улетел), через 4 с мелькнул лежащим на 0.8 с -> тревоги нет: почти не видели
+run("W1 упал, почти всё время не виден -> без тревоги",
+    lambda t: (1, STAND if t < 3 else LIE, None) if t < 3.3 or 7.0 <= t < 7.8 else None, "FALL?", 0, "oblique")
+# W2: то же, но потом его снова видно и он лежит -> тревога приходит позже, но приходит
+run("W2 упал, пропал, потом лежит на виду -> тревога (позже)",
+    lambda t: (1, STAND if t < 3 else LIE, None) if t < 3.3 or t >= 7.0 else None, "FALL", 1, "oblique")
+# W3: упал и лежит; за 0.3 с до тревоги трекер выдал новый номер (7) -> тревога ждёт, пока новый номер
+#     виден recover_s, но не теряется
+run("W3 смена номера перед тревогой -> тревога через recover_s",
+    lambda t: None if 7.0 < t < 7.2 else ((1 if t < 7.0 else 7), STAND if t < 3 else LIE, None), "FALL", 1, "oblique")
+# W4: лежит, а трекер меняет ему номер каждые 1.5 с (как у мелких людей при полёте дрона) -> тревога не теряется:
+#     приходит не позже 2 * lying_alarm_s после падения
+m = run("W4 номер меняется каждые 1.5 с -> тревога всё равно есть",
+        lambda t: ((1 if t < 3.3 else 100 + int((t - 3.3) / 1.5)), STAND if t < 3.3 else LIE, None), "FALL", 1, "oblique")
+ok = bool(m.events) and m.events[0]["alarm_s"] <= 3.3 + 2 * BASE.lying_alarm_s + 0.5
+print(f"{'OK ' if ok else 'FAIL'} W4b тревога вовремя: {[e['alarm_s'] for e in m.events]}")
+if not ok: fails.append("W4b")
+
+# ---------------- СИГНАЛ CHECK «лежит без движения» ----------------
+print("=== сигнал CHECK ===")
+def check_case(name, timeline, expect_checks, expect_alarms=0, secs=25):
+    m = FallMonitor(cfg_with(camera_view="oblique"), FPS)
+    for i in range(int(secs * FPS)):
+        t = i / FPS; item = timeline(t)
+        m.update(t, [item] if item else [])
+    ok = len(m.checks) == expect_checks and len(m.events) == expect_alarms
+    print(f"{'OK ' if ok else 'FAIL'} {name}: CHECK {[c['check_s'] for c in m.checks]}, тревог {len(m.events)}")
+    if not ok: fails.append(name)
+# C1: лёг медленно (3 с) и не двигается -> тревоги нет, но через still_check_s — один CHECK
+check_case("C1 лёг медленно и лежит -> CHECK, без тревоги", lambda t: (1, ob(ramp(t, 3, 3, 5, 85)), kpts_for(ramp(t, 3, 3, 5, 85))), 1)
+# C2: лежит, но ползёт (перемещается ~1 длину тела в секунду) -> CHECK нет
+check_case("C2 лежит и ползёт -> без CHECK",
+           lambda t: (1, STAND if t < 3 else box(200, 70, cx=300 + 200 * (t - 3)), None), 0)
+# C3: упал быстро -> тревога FALL; CHECK после тревоги не нужен (при still_check_s > lying_alarm_s;
+#     если still_check_s сделать меньше 4 с, CHECK может прийти раньше тревоги)
+check_case("C3 упал и лежит -> тревога, CHECK не дублирует", lambda t: (1, STAND if t < 3.3 else LIE, None), 0, 1)
+# C4: сидит 20 с (рамка как у стоящего) -> ничего
+check_case("C4 сидит -> без CHECK", lambda t: (1, STAND, None), 0)
+
 # ---------------- ПРОВЕРКА ПЕРЕД ТРЕВОГОЙ, КРАЙ КАДРА, ДВИЖЕНИЕ ДРОНА ----------------
 print("=== проверка перед тревогой ===")
 def loop(name, frame_fn, expect_alarms, expect_state=None, view="oblique", secs=20, frame_size=None, pose_mode="geometry"):

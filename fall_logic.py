@@ -41,10 +41,12 @@
            (в hybrid переход считается по ФОРМЕ рамки; сеть может согласиться с формой
            позже не больше чем на pose_net_lying_s)
        UP --(перешёл в DOWN медленнее)----------------> LYING  (просто лёг, без тревоги)
-       FALL? --(через lying_alarm_s: лежал >= alarm_down_share кадров, лежит сейчас
+       FALL? --(через lying_alarm_s: ВИДЕЛИ лежащим >= alarm_down_share всех кадров этого времени, лежит сейчас
                 и не перемещается быстрее still_speed_max)--> FALL (красный, событие в CSV)
        FALL? --(через lying_alarm_s: лежал мало или перемещается)--> отмена (UP или LYING)
        FALL?/FALL/LYING --(стоит recover_s подряд)----> UP
+       LYING/FALL? --(видели лежащим и неподвижным still_check_s)--> сигнал CHECK оператору (не тревога, отдельный CSV):
+           человек мог упасть медленно или лечь и потерять сознание — пусть посмотрит человек
        LYING --(recover_s подряд стоит или идёт: поза переходная и скорость > still_speed_max;
               в режиме classifier — только стоит)--> UP
   Дрон летит, снижается или приближает: прошлые положения и размеры людей пересчитываются
@@ -111,6 +113,9 @@ class Track:
     box: tuple = (0, 0, 0, 0)
     kpts: object = None
     last_seen: float = 0.0
+    still: deque = field(default_factory=deque)      # (t, зона, скорость) за still_check_s — для сигнала CHECK
+    checked: bool = False                            # сигнал CHECK уже дан (сбрасывается, когда встал)
+    id_since: float | None = None        # с какого момента у него ЭТОТ номер (новый или переданный при смене номера)
     last_up_t: float | None = None       # когда последний раз стоял
     down_since: float | None = None      # когда перешёл в горизонталь
     up_since: float | None = None        # когда снова встал (для снятия тревоги)
@@ -141,9 +146,11 @@ class Track:
 class FallMonitor:
     def __init__(self, cfg, analysis_fps, frame_size=None):
         self.cfg = cfg
+        self.analysis_fps = analysis_fps # сколько кадров в секунду анализируем (для «видели ли его все N секунд»)
         self.frame_size = frame_size     # (ширина, высота) кадра — для правила «рамка у края»
         self.tracks: dict[int, Track] = {}
         self.events: list[dict] = []
+        self.checks: list[dict] = []     # сигналы «лежит без движения» для оператора (не тревоги)
         self.cancelled = 0               # сколько FALL? отменено проверкой перед тревогой
         # сколько замеров «стоя» хранить для эталона формы рамки
         self.baseline_len = max(3, round(cfg.baseline_window_s * analysis_fps))
@@ -184,6 +191,7 @@ class FallMonitor:
             tr = self.tracks.get(tid)
             if tr is None:
                 tr = self._inherit(tid, box, kpts, t, current) or Track(tid, self.baseline_len)
+                tr.id_since = t
                 self.tracks[tid] = tr
             tr.box, tr.kpts, tr.last_seen = box, kpts, t
             self._update_speed(tr, t, box)
@@ -198,6 +206,7 @@ class FallMonitor:
                 elif tr.geo_zone == DOWN and tr.geo_down_t is None:
                     tr.geo_down_t = t
             self._step(tr, t)
+            self._still_check(tr, t)
 
             # эталон формы пополняем, только когда человек уверенно стоит, поза в этом кадре видна
             # и рамка сама по себе похожа на стоящего — иначе эталон «уползает» (медленная смена
@@ -495,6 +504,32 @@ class FallMonitor:
             if t - tr.down_since >= c.lying_alarm_s:
                 self._check_alarm(tr, t, z)
 
+    def _still_check(self, tr, t):
+        """Сигнал CHECK: человек лежит и не двигается still_check_s, а тревоги нет (лёг медленно,
+        сполз, упал так, что «быстро» не распознали). Это не тревога о падении, а просьба к оператору
+        посмотреть. Видели лежащим >= alarm_down_share всего времени still_check_s и медиана скорости
+        <= still_speed_max (возраст номера не требуется: 10 с наблюдения и так длинные, а при частой
+        смене номера сигнал не должен пропасть)."""
+        c = self.cfg
+        n = getattr(c, "still_check_s", 0)
+        if not n:
+            return
+        tr.still.append((t, tr.zone, tr.speed))
+        while t - tr.still[0][0] > n:
+            tr.still.popleft()
+        if tr.state in (UNKNOWN, UPRIGHT):
+            tr.checked = False                          # встал — следующий раз снова можно сигналить
+            return
+        if tr.checked or tr.state not in (LYING, FALLING) or tr.zone != DOWN or t - tr.still[0][0] < 0.95 * n:
+            return
+        down = sum(z == DOWN for _, z, _ in tr.still)
+        speeds = [v for _, _, v in tr.still if v is not None]
+        if down >= c.alarm_down_share * n * self.analysis_fps and len(speeds) >= 3 \
+                and median(speeds) <= c.still_speed_max:
+            tr.checked = True
+            self.checks.append({"track_id": tr.tid, "check_s": round(t, 2), "box": tr.box,
+                                "state": tr.state, "earlier_ids": " ".join(map(str, tr.earlier_ids))})
+
     def _check_alarm(self, tr, t, z):
         """Тревога, только если человек действительно лежал всё это время и не перемещался.
         Иначе FALL? отменяется: человек встал и пошёл, или это предмет, который несут."""
@@ -508,19 +543,28 @@ class FallMonitor:
         # hybrid: сеть тоже должна была «видеть» лежащего человека большую часть ожидания
         net_no = c.pose_mode == "hybrid" and len(tr.wait_net) >= 3 and \
             sum(tr.wait_net) / len(tr.wait_net) < c.alarm_net_share
+        # Видели ли мы его лежащим достаточно долго? Кадры, где человека не было видно (ушёл за край
+        # кадра, сменил номер), «лежит» не считаются: тревога — только про того, кого правда видели.
+        # (Okutama 2.2.9: дрон быстро летел, человек 24 кадра из ~60 был виден -> была ложная тревога.)
+        seen_enough = tr.wait_votes.get(DOWN, 0) >= c.alarm_down_share * c.lying_alarm_s * self.analysis_fps
+        # ...и с нынешним номером его видно хотя бы recover_s: историю при смене номера передаём по догадке
+        # («рядом и похож по размеру»), и тревога в первом же кадре нового номера — тревога про незнакомца.
+        # Но если трекер меняет номер лежащему чаще, чем раз в recover_s, тревога не должна пропасть:
+        # после 2 * lying_alarm_s ожидания возраст номера уже не важен (тревога позже, но не теряется).
+        seen_enough = seen_enough and (t - tr.id_since >= c.recover_s or t - tr.down_since >= 2 * c.lying_alarm_s)
         if share < c.alarm_down_share or moving or net_no:
             self.cancelled += 1
             tr.event = None
             tr.state = LYING if z == DOWN else UPRIGHT
             if tr.state == UPRIGHT:
                 tr.down_since = None
-        elif z == DOWN:
+        elif z == DOWN and seen_enough:
             tr.state = FALLEN                           # лежит и не двигается -> тревога
             tr.event.update(alarm_s=round(t, 2), box=tr.box,
                             earlier_ids=" ".join(map(str, tr.earlier_ids)), recovered_s="",
                             down_share=round(share, 2), speed="" if speed is None else round(speed, 2))
             self.events.append(tr.event)
-        # иначе (лежал, не двигался, но именно сейчас не DOWN) — ждём следующего кадра
+        # иначе (лежал, не двигался, но именно сейчас не DOWN или видели мало) — ждём, остаётся FALL?
 
     def _looks_upright(self, box, kpts):
         """Похож ли человек в рамке на стоящего: по углу туловища, если точкам тела можно

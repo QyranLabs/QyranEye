@@ -210,7 +210,7 @@ def draw_text(img, text, org, color, scale, thick):
     cv2.putText(img, text, org, cv2.FONT_HERSHEY_SIMPLEX, scale, color, thick, cv2.LINE_AA)
 
 
-def draw(frame, overlay, t, n_alarms, cfg, view):
+def draw(frame, overlay, t, n_alarms, cfg, view, n_checks=0):
     k = frame.shape[0] / 1080                          # масштаб надписей под размер кадра
     th = max(1, round(2 * k))
     for o in overlay:
@@ -224,12 +224,14 @@ def draw(frame, overlay, t, n_alarms, cfg, view):
                 if kp[a][2] >= cfg.keypoint_conf and kp[b][2] >= cfg.keypoint_conf:
                     cv2.line(frame, (int(kp[a][0]), int(kp[a][1])), (int(kp[b][0]), int(kp[b][1])),
                              (255, 0, 255), th, cv2.LINE_AA)
-        label = f"#{o['tid']} {o['state']} {o['cue']}"
+        label = f"#{o['tid']} {o['state']}{' CHECK' if o.get('checked') and not fallen else ''} {o['cue']}"
         draw_text(frame, label, (x1, max(int(20 * k), y1 - int(8 * k))), color, 0.6 * k, th)
         if fallen:
             draw_text(frame, "FALL", (x1, y2 + int(40 * k)), (0, 0, 255), 1.4 * k, th + 1)
+        elif o.get("checked"):
+            draw_text(frame, "CHECK", (x1, y2 + int(40 * k)), (0, 165, 255), 1.2 * k, th + 1)
 
-    header = f"t={fmt_time(t)}  people={len(overlay)}  alarms={n_alarms}  view={view or '?'}"
+    header = f"t={fmt_time(t)}  people={len(overlay)}  alarms={n_alarms}  checks={n_checks}  view={view or '?'}"
     draw_text(frame, header, (int(15 * k), int(40 * k)), (255, 255, 255), 0.9 * k, th)
     if any(o["state"] == FALLEN for o in overlay):
         draw_text(frame, "FALL DETECTED", (int(15 * k), int(95 * k)), (0, 0, 255), 1.6 * k, th + 1)
@@ -432,14 +434,14 @@ def process_video(path, cfg, model, out_dir, pose_model=None, on_frame=None):
                 visible = monitor.update(t, people, warp)
                 if on_frame is not None:
                     on_frame(t, frame, people, warp, monitor, visible)
-                overlay = [dict(tid=tr.tid, state=tr.state, cue=tr.cue, box=tr.box, kpts=tr.kpts)
+                overlay = [dict(tid=tr.tid, state=tr.state, cue=tr.cue, box=tr.box, kpts=tr.kpts, checked=tr.checked)
                            for tr in visible]
                 if not had_view and monitor.view is not None:
                     print(f"  Ракурс: {monitor.view} ({monitor.view_reason}), t={t:.1f} с")
                     warn_view(monitor)
 
             view = monitor.view and monitor.view + ("" if monitor.view_sure else " (not sure)")
-            draw(frame, overlay, t, len(monitor.events), cfg, view)
+            draw(frame, overlay, t, len(monitor.events), cfg, view, len(monitor.checks))
             writer.write(frame)
 
             if cfg.show_preview:
@@ -461,23 +463,42 @@ def process_video(path, cfg, model, out_dir, pose_model=None, on_frame=None):
             cv2.destroyAllWindows()
         # неполный прогон (остановили или ошибка) не должен выглядеть как готовый: его тревоги — в .partial.csv
         partial = out_dir / f"{path.stem}_events.partial.csv"
+        checks_csv = out_dir / f"{path.stem}_checks.csv"
+        checks_partial = out_dir / f"{path.stem}_checks.partial.csv"
         if complete:
             write_csv(out_csv, path.name, monitor.events, fps, scale, monitor.view)
+            write_checks_csv(checks_csv, path.name, monitor.checks, scale)
             partial.unlink(missing_ok=True)
+            checks_partial.unlink(missing_ok=True)
         else:
             out_csv.unlink(missing_ok=True)
+            checks_csv.unlink(missing_ok=True)
             write_csv(partial, path.name, monitor.events, fps, scale, monitor.view)
+            write_checks_csv(checks_partial, path.name, monitor.checks, scale)
             print(f"  ВНИМАНИЕ: обработка прервана на кадре {idx} из {total}, тревоги до этого места -> {partial}")
 
     took = time.time() - t_start
     if complete and total and idx < 0.99 * total:
         print(f"  ВНИМАНИЕ: прочитано {idx} кадров из {total} — видео могло обрезаться или быть повреждено")
     print(f"  Готово за {took:.0f} с ({idx / max(took, 1e-6):.1f} кадр/с). Тревог: {len(monitor.events)}, "
-          f"отменено проверкой перед тревогой: {monitor.cancelled}")
+          f"отменено проверкой перед тревогой: {monitor.cancelled}, сигналов CHECK: {len(monitor.checks)}")
     print(f"  -> {out_video}\n  -> {out_csv if complete else partial}")
     if stopped:
         raise StopRequested
     return monitor.events
+
+
+def write_checks_csv(path, video_name, checks, scale):
+    """Сигналы «лежит без движения» (CHECK): не тревоги, а просьба оператору посмотреть."""
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        wr = csv.DictWriter(f, fieldnames=["video", "track_id", "earlier_ids", "check_s", "check_time", "state",
+                                           "x1", "y1", "x2", "y2"])
+        wr.writeheader()
+        for e in checks:
+            x1, y1, x2, y2 = (round(v / scale) for v in e["box"])
+            wr.writerow({"video": video_name, "track_id": e["track_id"], "earlier_ids": e["earlier_ids"],
+                         "check_s": e["check_s"], "check_time": fmt_time(e["check_s"]), "state": e["state"],
+                         "x1": x1, "y1": y1, "x2": x2, "y2": y2})
 
 
 def write_csv(path, video_name, events, fps, scale, view):

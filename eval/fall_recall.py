@@ -11,14 +11,18 @@
     person    A, B, C... (без имён)
     view      oblique (под углом) или nadir (сверху)
     height_m  высота дрона
-    kind      fall — упал и лежит >= 7 с: тревога ДОЛЖНА быть. Всё остальное — тревоги быть НЕ должно:
-              short_fall (упал и сразу встал), slow_lie (лёг медленно), sit, squat, bag, pushups, walk...
+    kind      fall — упал и лежит >= 7 с: тревога ДОЛЖНА быть.
+              fast_lie — быстро лёг сам: система по замыслу не отличает это от падения, считается отдельно.
+              Всё остальное — тревоги быть НЕ должно: short_fall (упал и сразу встал), slow_lie (лёг медленно),
+              sit, squat, bag, pushups, walk, normal (долгая обычная съёмка — для «ложных тревог в час»)...
     start_s   начало действия (у падения — момент, когда начал падать), секунды видео
     end_s     конец действия (у падения — момент, когда начал вставать)
     note      направление и прочее (side, along, knees, ...)
 
 Падение поймано, если тревога пришла между start_s и end_s + 1 с. Одна тревога засчитывается одному падению.
-Все остальные тревоги — ложные (повторная тревога на том же падении считается отдельно).
+Все остальные тревоги — ложные (повторная тревога на том же падении считается отдельно); тревога на fast_lie — отдельно.
+Сигналы CHECK («лежит без движения», файл <имя>_checks.csv) — не тревоги: для каждого падения пишется, был ли
+хотя бы CHECK, а для обычных действий — сколько CHECK на них пришлось (кроме slow_lie, где CHECK — то, что нужно).
 """
 import argparse, csv, math
 from collections import Counter, defaultdict
@@ -26,6 +30,7 @@ from pathlib import Path
 from statistics import median
 
 P = Path(__file__).resolve().parent.parent
+AMBIGUOUS = {"fast_lie"}          # тревога здесь не ошибка и не попадание: по замыслу система это не различает
 TAIL_S, MIN_LIE_S = 1.0, 7.0      # запас после start_s..end_s; короче MIN_LIE_S тревога (4 с) может не успеть
 COLS = {"video", "set", "person", "view", "height_m", "kind", "start_s", "end_s", "note"}
 
@@ -55,6 +60,18 @@ def match(actions, alarms):
             on = [a["kind"] for a in actions if a["kind"] != "fall" and a["start"] <= t <= a["end"] + TAIL_S]
             false.append((t, on[0] if on else "вне разметки"))
     return caught, repeats, false
+
+
+def checks_on(actions, checks):
+    """Сигналы CHECK -> {номер действия: время первого CHECK}, [CHECK вне всех действий]."""
+    hit, outside = {}, []
+    for t in sorted(checks):
+        on = [i for i, a in enumerate(actions) if a["start"] <= t <= a["end"] + TAIL_S]
+        if on:
+            hit.setdefault(on[0], t)
+        else:
+            outside.append(t)
+    return hit, outside
 
 
 def main():
@@ -93,37 +110,50 @@ def main():
         raise SystemExit(f"Нет результатов (сначала main.py): {missing}")
 
     groups, hard = defaultdict(Counter), Counter()
-    n_caught = n_falls = n_rep = 0
+    n_caught = n_falls = n_rep = n_check_only = 0
+    chk_kind, amb, chk_outside, no_checks = Counter(), Counter(), 0, []
     delays, missed, false_all, minutes, no_len = [], [], [], 0.0, []
     for v, acts in sorted(by_video.items()):
         acts.sort(key=lambda r: r["start"])
         ev = csv.DictReader(open(Path(a.events) / f"{Path(v).stem}_events.csv"))
         caught, rep, false = match(acts, [float(e["alarm_s"]) for e in ev])
+        chk_file = Path(a.events) / f"{Path(v).stem}_checks.csv"
+        if not chk_file.exists():
+            no_checks.append(v)                  # старый прогон, без сигналов CHECK — не путать с «CHECK было 0»
+        checks = [float(e["check_s"]) for e in csv.DictReader(open(chk_file))] if chk_file.exists() else []
+        chk, outside = checks_on(acts, checks)
+        chk_outside += len(outside)
         n_rep += len(rep)
-        false_all += [(v, t, k) for t, k in false]
+        amb_hit = {i for t, k in false if k in AMBIGUOUS
+                   for i, r in enumerate(acts) if r["kind"] == k and r["start"] <= t <= r["end"] + TAIL_S}
+        amb.update(acts[i]["kind"] for i in amb_hit)            # считаем действия с тревогой, а не тревоги
+        false_all += [(v, t, k) for t, k in false if k not in AMBIGUOUS]
         for i, r in enumerate(acts):
             if r["kind"] != "fall":
                 hard[r["kind"]] += 1
+                chk_kind[r["kind"]] += i in chk
                 continue
             if r["end"] - r["start"] < MIN_LIE_S:
                 print(f"! {v} {r['start_s']} с: лежал меньше {MIN_LIE_S:.0f} с — для fall мало, проверьте разметку")
             n_falls += 1
             hit = i in caught
             n_caught += hit
+            n_check_only += (not hit) and i in chk
             for g in (f"ракурс {r['view']}", f"высота {r['height_m']} м", f"человек {r['person']}", f"тип {r['note'] or '—'}"):
                 groups[g]["n"] += 1
                 groups[g]["ok"] += hit
             if hit:
                 delays.append(caught[i] - r["start"])
             else:
-                missed.append(f"{v} {r['start_s']} с ({r['view']}, {r['height_m']} м, {r['note']})")
-        try:
+                missed.append(f"{v} {r['start_s']} с ({r['view']}, {r['height_m']} м, {r['note']})"
+                              + (f" — был только CHECK на {chk[i]:.1f} с" if i in chk else ""))
+        d, vf = 0.0, next(Path(a.videos).rglob(v), None) if Path(a.videos).is_dir() else None   # может лежать в подпапке
+        if vf is not None:
             import cv2
-            cap = cv2.VideoCapture(str(next(Path(a.videos).rglob(v), "")))   # видео может лежать в подпапке
-            d = cap.get(cv2.CAP_PROP_FRAME_COUNT) / (cap.get(cv2.CAP_PROP_FPS) or 1)
+            cap = cv2.VideoCapture(str(vf))
+            fr, fps = cap.get(cv2.CAP_PROP_FRAME_COUNT), cap.get(cv2.CAP_PROP_FPS)
             cap.release()
-        except ImportError:
-            d = 0
+            d = fr / fps if fps and fps > 0 and fr > 0 else 0.0
         minutes += d / 60
         if d <= 0:
             no_len.append(v)
@@ -133,15 +163,29 @@ def main():
         lo, hi = wilson(n_caught, n_falls)
         print(f"Поймано падений: {n_caught} из {n_falls} = {100 * n_caught / n_falls:.0f} %"
               f"  (95 % интервал {100 * lo:.0f}–{100 * hi:.0f} %)")
+        if n_check_only:
+            k2 = n_caught + n_check_only
+            lo, hi = wilson(k2, n_falls)
+            print(f"  + ещё {n_check_only} падений без тревоги, но с сигналом CHECK: тревога или CHECK — {k2} из {n_falls}"
+                  f" = {100 * k2 / n_falls:.0f} %  (95 % интервал {100 * lo:.0f}–{100 * hi:.0f} %)")
     if delays:
         print(f"Тревога через {median(delays):.1f} с после начала падения (медиана; максимум {max(delays):.1f} с)")
-    per = f" = {len(false_all) / minutes:.2f} в минуту ({minutes:.1f} мин видео)" if minutes and not no_len else ""
+    per = (f" = {len(false_all) / minutes * 60:.1f} в час ({minutes:.1f} мин видео)" if minutes and not no_len
+           else f" (длительность не посчитана: нет видео {', '.join(no_len)})" if no_len else "")
     print(f"Ложных тревог: {len(false_all)}{per};  повторных на том же падении: {n_rep}")
     fk = Counter(k for _, _, k in false_all)
-    if hard or fk:
+    if any(k not in AMBIGUOUS for k in hard) or fk:
         print("Обычные действия (ложных тревог / всего):",
-              ", ".join(f"{k} {fk.get(k, 0)}/{n}" for k, n in sorted(hard.items())),
+              ", ".join(f"{k} {fk.get(k, 0)}/{n}" for k, n in sorted(hard.items()) if k not in AMBIGUOUS),
               f"; вне разметки {fk.get('вне разметки', 0)}")
+    if amb:
+        print("Быстро лёг сам (тревога здесь ожидаема, в ложные не входит):",
+              ", ".join(f"{k}: с тревогой {n} из {hard[k]}" for k, n in amb.items()))
+    if no_checks:
+        print(f"! Нет файла сигналов CHECK (обработано старой версией?): {', '.join(no_checks)} — CHECK для них не посчитаны")
+    if chk_kind or chk_outside:
+        print("Сигналы CHECK на обычных действиях (на slow_lie — это нужно):",
+              ", ".join(f"{k} {chk_kind[k]}/{n}" for k, n in sorted(hard.items())), f"; вне разметки {chk_outside}")
     for g, c in sorted(groups.items()):
         print(f"  {g:22s} {c['ok']}/{c['n']}")
     for m in missed:

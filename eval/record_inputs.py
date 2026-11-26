@@ -5,13 +5,15 @@
 размер кадра, ракурс. Детектор и нейросеть работают один раз; потом eval/replay.py прогоняет
 только логику с любыми настройками за секунды.
 
-    .venv/bin/python eval/record_inputs.py config.yaml eval_results/inputs_val okutama_train/val_videos/
+    .venv/bin/python eval/record_inputs.py config.yaml eval_results/inputs_val okutama_train/val_videos/ [auto|oblique|nadir]
+(последнее — ракурс, как ключ --view у main.py; по умолчанию auto)
 (чтобы записались ответы нейросети, в конфиге должен быть pose_mode: hybrid или classifier)
 """
 import json, sys, time
 from pathlib import Path
 proj = str(Path(__file__).resolve().parent.parent)
 cfg, logdir, source = sys.argv[1], Path(sys.argv[2]), sys.argv[3]
+view = sys.argv[4] if len(sys.argv) > 4 else "auto"
 sys.path.insert(0, proj)
 logdir.mkdir(parents=True, exist_ok=True)
 import video_pipeline as vp, fall_logic as fl, main as m
@@ -59,5 +61,5 @@ def up(self, t, people, warp=None):
 
 
 vp.process_video, fl.FallMonitor.update, vp.pose_probs = pv, up, pp
-sys.argv = ["main.py", source, "--config", cfg]
+sys.argv = ["main.py", source, "--config", cfg, "--view", view]
 m.main()
