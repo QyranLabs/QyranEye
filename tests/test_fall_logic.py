@@ -184,6 +184,11 @@ m = run("W4 номер меняется каждые 1.5 с -> тревога в
 ok = bool(m.events) and m.events[0]["alarm_s"] <= 3.3 + 2 * BASE.lying_alarm_s + 0.5
 print(f"{'OK ' if ok else 'FAIL'} W4b тревога вовремя: {[e['alarm_s'] for e in m.events]}")
 if not ok: fails.append("W4b")
+# W5: как 2.2.9 — после «падения» его видно урывками (2 кадра из 5), номер меняется каждую секунду ->
+#     тревоги нет никогда: «видели лежащим» считается за последние lying_alarm_s, а не копится с начала
+run("W5 виден 40 % кадров, номер меняется каждую секунду -> без тревоги",
+    lambda t: ((1 if t < 3.3 else 100 + int(t - 3.3)), STAND if t < 3.3 else LIE, None)
+    if t < 3.3 or round(t * FPS) % 5 < 2 else None, "FALL?", 0, "oblique", secs=25)
 
 # ---------------- СИГНАЛ CHECK «лежит без движения» ----------------
 print("=== сигнал CHECK ===")

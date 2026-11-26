@@ -129,6 +129,7 @@ class Track:
     wait_votes: dict = field(default_factory=dict)   # зоны за время ожидания тревоги (FALL?)
     wait_speeds: list = field(default_factory=list)  # скорости за время ожидания тревоги
     wait_net: list = field(default_factory=list)     # hybrid: «лежит» ли по сети за время ожидания
+    wait_down_t: deque = field(default_factory=deque)  # когда видели лежащим за последние lying_alarm_s (FALL?)
     geo_votes: deque = field(default_factory=deque)  # hybrid: голоса правил по форме (отдельно)
     geo_zone: str | None = None                      # hybrid: сглаженная зона только по форме
     geo_raw: str | None = None
@@ -485,6 +486,7 @@ class FallMonitor:
                                     "transition_s": round(down - up, 2),
                                     "fall_speed": "" if v is None else round(v, 2)}
                         tr.wait_votes, tr.wait_speeds, tr.wait_net = {}, [], []
+                        tr.wait_down_t = deque()
                     else:
                         tr.state = LYING                # ложился медленно
 
@@ -497,6 +499,10 @@ class FallMonitor:
         if tr.state == FALLING:
             if z is not None:
                 tr.wait_votes[z] = tr.wait_votes.get(z, 0) + 1
+            if z == DOWN:
+                tr.wait_down_t.append(t)
+            while tr.wait_down_t and t - tr.wait_down_t[0] > c.lying_alarm_s:
+                tr.wait_down_t.popleft()
             if tr.speed is not None:
                 tr.wait_speeds.append(tr.speed)
             if tr.p_lying is not None:
@@ -546,7 +552,9 @@ class FallMonitor:
         # Видели ли мы его лежащим достаточно долго? Кадры, где человека не было видно (ушёл за край
         # кадра, сменил номер), «лежит» не считаются: тревога — только про того, кого правда видели.
         # (Okutama 2.2.9: дрон быстро летел, человек 24 кадра из ~60 был виден -> была ложная тревога.)
-        seen_enough = tr.wait_votes.get(DOWN, 0) >= c.alarm_down_share * c.lying_alarm_s * self.analysis_fps
+        # Считаем за ПОСЛЕДНИЕ lying_alarm_s, а не с начала падения: иначе того, кого видно урывками,
+        # кадры «лежит» рано или поздно набирались, и тревога только откладывалась.
+        seen_enough = len(tr.wait_down_t) >= c.alarm_down_share * c.lying_alarm_s * self.analysis_fps
         # ...и с нынешним номером его видно хотя бы recover_s: историю при смене номера передаём по догадке
         # («рядом и похож по размеру»), и тревога в первом же кадре нового номера — тревога про незнакомца.
         # Но если трекер меняет номер лежащему чаще, чем раз в recover_s, тревога не должна пропасть:
