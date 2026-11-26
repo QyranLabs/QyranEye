@@ -316,6 +316,18 @@ python3 -m venv .venv
 съёмке с дрона сверху. Разметка Okutama свободная (рамка больше человека), поэтому для мелких людей числа занижены
 одинаково для всех вариантов.
 
+Дообучение детектора на обучающей части Okutama (нужна папка `okutama_train/`, 5.3 ГБ; тестовые ролики в обучение
+не попадают, проверочные — те же 7 видео, что у нейросети позы):
+
+```bash
+.venv/bin/python tools/make_det_dataset.py okutama_train okutama_train/det_dataset
+.venv/bin/python tools/train_det.py okutama_train/det_dataset/data.yaml          # ~25 мин на эпоху, до 15 эпох
+.venv/bin/python eval/detect_by_size.py --variants base --model runs/detect/det_okutama/weights/best.pt
+```
+
+Рамки Okutama свободнее рамок обычного YOLO, а правила позы подбирались под обычный YOLO: прежде чем ставить
+дообученный детектор в `config.yaml`, прогнать `tests/` и `eval/evaluate.py`.
+
 ## Нейросеть позы
 
 ```bash

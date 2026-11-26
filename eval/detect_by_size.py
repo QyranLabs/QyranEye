@@ -7,6 +7,7 @@
     .venv/bin/python eval/detect_by_size.py                 # 11 роликов, каждый 45-й кадр, ~15 мин
     .venv/bin/python eval/detect_by_size.py --step 90       # вдвое быстрее
     .venv/bin/python eval/detect_by_size.py --variants base,tiles4k_3x3
+    .venv/bin/python eval/detect_by_size.py --variants base --model runs/detect/det_okutama/weights/best.pt   # дообученный
 
 Размер человека — длинная сторона размеченной рамки в пикселях кадра 1080p (то, что видит система
 при max_height 1080). Человек «найден», если рамка детектора перекрывает размеченную с IoU >= 0.2.
@@ -82,13 +83,15 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--step", type=int, default=45, help="брать каждый N-й кадр (по умолчанию 45 = 1.5 с)")
     ap.add_argument("--variants", default=",".join(VARIANTS))
+    ap.add_argument("--model", help="другой детектор вместо model из config.yaml (например дообученный)")
     ap.add_argument("--conf", type=float, default=None, help="порог уверенности (по умолчанию conf из config.yaml)")
     a = ap.parse_args()
     names = a.variants.split(",")
     base = vp.load_config(PROJECT / "config.yaml")
     conf = a.conf if a.conf is not None else base.conf
     from ultralytics import YOLO
-    model = YOLO(str(vp.resolve(base, base.model)))
+    model = YOLO(a.model or str(vp.resolve(base, base.model)))
+    print(f"Детектор: {a.model or base.model}")
     cfgs = {}
     for n in names:
         h, tiles, imgsz = VARIANTS[n]
