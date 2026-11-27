@@ -52,4 +52,4 @@ spot first instead of watching hours of footage. A person always makes the final
 - Commercial use later would need: an Ultralytics licence (or another detector) and our own training data.
 
 ## Team
-[Name — role], [Name — role], [Name — role]
+QyranLabs, three people: Yertugan, Zhangir, Nadir. Roles: [Name — role] to be added by the team.

@@ -14,4 +14,4 @@ first instead of watching hours of footage. The final decision always stays with
 **Status:** working prototype tested on public drone datasets (Okutama-Action, NOMAD, MOD20) with no false alarms on
 the clips checked; real falls filmed by our own drone (FIMI X8 SE, 5–20 m) are the next step.
 
-Team: [names]
+Team: QyranLabs — Yertugan, Zhangir, Nadir

@@ -371,6 +371,10 @@ python3 -m venv .venv
 * Локально: `.venv/bin/python demo/app.py` → http://127.0.0.1:7860. Обновить облако: `.venv/bin/modal deploy demo/modal_app.py`
   (после проверки: облако сейчас работает на версии 425cebd). `demo/build_space.py` — для Hugging Face (нужен PRO).
 
+## Команда
+
+QyranLabs — три человека: Ертуган, Жангир, Надир.
+
 ## Как работаем вдвоём
 
 1. Перед работой: `git pull`. Новая работа — в своей ветке (`git switch -c имя`), в `main` — через pull request.
